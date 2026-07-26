@@ -5,7 +5,7 @@ import MapView from "@/components/MapView";
 
 type Booking = {
   id: number; pickup: string; dropoff: string; pickupAt: string;
-  price: number; status: string; payment: string; durationMin: number;
+  price: number; status: string; payment: string; durationMin: number; deposit: number;
   pickupLat?: number; pickupLng?: number; dropoffLat?: number; dropoffLng?: number;
 };
 
@@ -75,7 +75,12 @@ export default function ChauffeurPage() {
             </div>
             <p className="text-sm">{b.pickup} → {b.dropoff}</p>
             <p className="text-sm text-neutral-400">
-              {new Date(b.pickupAt).toLocaleString("fr-FR")} · {b.durationMin} min · {b.price} € · {b.payment === "online" ? "en avance" : "à l'arrivée"}
+              {new Date(b.pickupAt).toLocaleString("fr-FR")} · {b.durationMin} min · {b.price} € ·{" "}
+              {b.payment === "online"
+                ? "en avance"
+                : b.payment === "cash"
+                ? `espèces (acompte ${b.deposit} €)`
+                : "à l'arrivée"}
             </p>
             {b.pickupLat != null && b.dropoffLat != null && (
               <MapView

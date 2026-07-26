@@ -11,6 +11,7 @@ type Booking = {
   price: number;
   status: string;
   payment: string;
+  deposit: number;
   paid: number;
 };
 
@@ -51,6 +52,10 @@ export default function ConfirmationInner() {
                 ) : (
                   <span className="text-amber-400 font-semibold">en ligne (en attente)</span>
                 )
+              ) : b.payment === "cash" ? (
+                <span>
+                  espèces — acompte <b className="text-emerald-400">{b.deposit} €</b> à régler (non remboursable)
+                </span>
               ) : (
                 <span>à l&apos;arrivée</span>
               )}

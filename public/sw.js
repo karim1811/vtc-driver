@@ -1,5 +1,5 @@
 // Service worker minimal pour PWA (cache offline de l'app shell)
-const CACHE = "vtc-v1";
+const CACHE = "vtc-v2";
 const SHELL = ["/", "/reserver", "/chauffeur", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

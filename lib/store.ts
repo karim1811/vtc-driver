@@ -28,7 +28,9 @@ export type Booking = {
   pickupAt: string;
   durationMin: number;
   status: 'pending' | 'confirmed' | 'done' | 'cancelled';
-  payment: 'arrival' | 'online';
+  // 'arrival' = à l'arrivée | 'online' = Stripe en avance | 'cash' = espèces + acompte
+  payment: 'arrival' | 'online' | 'cash';
+  deposit: number; // acompte demandé (€) si paiement espèces
   paid: number;
   createdAt: string;
 };
@@ -115,13 +117,14 @@ export function listBookings(): Booking[] {
 export function getBooking(id: number): Booking | undefined {
   return read().bookings.find((x) => x.id === id);
 }
-export function createBooking(b: Omit<Booking, 'id' | 'createdAt' | 'status' | 'paid'>): Booking {
+export function createBooking(b: Omit<Booking, 'id' | 'createdAt' | 'status' | 'paid' | 'deposit'> & { deposit?: number }): Booking {
   const s = read();
   const booking: Booking = {
     id: s.bookings.length ? Math.max(...s.bookings.map((x) => x.id)) + 1 : 1,
     createdAt: new Date().toISOString(),
     status: 'pending',
     paid: 0,
+    deposit: b.deposit ?? 0,
     ...b,
   };
   s.bookings.push(booking);

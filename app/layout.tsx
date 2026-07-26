@@ -8,10 +8,10 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "VTC Karim — Réservation privée",
-  description: "Réservation VTC sur Paris IDF & Oise (60). Clientèle sur invitation.",
+  title: "VTC — Réservation privée",
+  description: "Réservation VTC sur invitation. Prix de votre course connu à l'avance.",
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "VTC Karim" },
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "VTC" },
 };
 
 export const viewport: Viewport = {

@@ -1,7 +1,7 @@
 {
-  "name": "VTC Karim — Réservation privée",
-  "short_name": "VTC Karim",
-  "description": "Réservation VTC sur Paris IDF & Oise (60). Clientèle sur invitation.",
+  "name": "VTC — Réservation privée",
+  "short_name": "VTC",
+  "description": "Réservation VTC sur invitation. Prix de votre course connu à l'avance.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0a0a",

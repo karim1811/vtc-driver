@@ -1,8 +1,8 @@
-// Géocodage via Nominatim (OpenStreetMap, gratuit, sans clé) + distance haversine.
-// Zone autorisée : Paris / Île-de-France (75,77,78,91,92,93,94,95) + Oise (60).
+// Géocodage via Nominatim (OpenStreetMap, gratuit, sans clé).
+// Aucune restriction de zone : l'app fonctionne partout en France (et au-delà).
+// Le département est conservé pour le calcul tarifaire (Oise vs reste), pas pour bloquer.
 
 const UA = 'vtc-driver/0.1 (open-source MVP)';
-export const ALLOWED_DEPTS = ['75', '77', '78', '91', '92', '93', '94', '95', '60'];
 
 export type GeoResult = {
   lat: number;
@@ -26,20 +26,19 @@ export async function geocode(addr: string): Promise<GeoResult | null> {
     if (!Array.isArray(data) || data.length === 0) return null;
     const r = data[0];
     const disp = (r.display_name || '') as string;
+    // Département (pour tarif), sans bloquer sur une zone.
     let dept: string | undefined;
     if (disp.includes('Oise')) dept = '60';
     else {
       const cp = disp.match(/\b(\d{5})\b/);
-      if (cp && ALLOWED_DEPTS.includes(cp[1].slice(0, 2))) {
-        dept = cp[1].slice(0, 2);
-      }
+      if (cp) dept = cp[1].slice(0, 2);
     }
     return {
       lat: parseFloat(r.lat),
       lng: parseFloat(r.lon),
       label: disp,
       dept,
-      ok: !!dept,
+      ok: true,
     };
   } catch {
     return null;
@@ -62,9 +61,40 @@ export function haversine(
 }
 
 // Routing réel en voiture via OSRM (public, gratuit, sans clé).
-// Renvoie la distance (km) et la durée (s) le long de la route, pas la volée droite.
+// Renvoie la distance (km), la durée (s) et la géométrie (tracé réel) le long de la route.
 // Fallback sur haversine + vitesse moyenne si OSRM indisponible.
-export type RouteResult = { distanceKm: number; durationSec: number; ok: boolean };
+export type RouteResult = {
+  distanceKm: number;
+  durationSec: number;
+  geometry: [number, number][]; // [lat, lng][] du tracé routier
+  ok: boolean;
+};
+
+// Décodage de la polyline encodée OSRM (algo standard, per spec).
+export function decodePolyline(str: string): [number, number][] {
+  const coords: [number, number][] = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < str.length) {
+    let result = 1, shift = 0, b: number;
+    do {
+      b = str.charCodeAt(index++) - 63 - 1;
+      result += b << shift;
+      shift += 5;
+    } while (b >= 0x1f);
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
+
+    result = 1; shift = 0;
+    do {
+      b = str.charCodeAt(index++) - 63 - 1;
+      result += b << shift;
+      shift += 5;
+    } while (b >= 0x1f);
+    lng += result & 1 ? ~(result >> 1) : result >> 1;
+
+    coords.push([lat / 1e5, lng / 1e5]);
+  }
+  return coords;
+}
 
 export async function route(
   a: { lat: number; lng: number },
@@ -72,22 +102,34 @@ export async function route(
 ): Promise<RouteResult> {
   const url =
     `https://router.project-osrm.org/route/v1/driving/` +
-    `${a.lng},${a.lat};${b.lng},${b.lat}?overview=false`;
+    `${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=polyline`;
   try {
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error('osrm ' + res.status);
     const data = await res.json();
     const r = data?.routes?.[0];
     if (!r) throw new Error('no route');
+    const geometry: [number, number][] = r.geometry
+      ? decodePolyline(r.geometry)
+      : [];
     return {
       distanceKm: Math.round((r.distance / 1000) * 100) / 100,
       durationSec: Math.round(r.duration),
+      geometry,
       ok: true,
     };
   } catch {
     // Fallback : volée droite * 1.3 (détour urbain) + 35 km/h.
     const d = haversine(a, b) * 1.3;
-    return { distanceKm: Math.round(d * 100) / 100, durationSec: Math.round((d / 35) * 3600), ok: false };
+    return {
+      distanceKm: Math.round(d * 100) / 100,
+      durationSec: Math.round((d / 35) * 3600),
+      geometry: [
+        [a.lat, a.lng],
+        [b.lat, b.lng],
+      ],
+      ok: false,
+    };
   }
 }
 

@@ -3,6 +3,15 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import MapView from "@/components/MapView";
+import AddressInput from "@/components/AddressInput";
+
+// Créneau : matin / après-midi, avec heure de prise en charge.
+type Slot = { half: "am" | "pm"; hour: string };
+
+function defaultSlot(): Slot {
+  const h = new Date().getHours();
+  return { half: h < 12 ? "am" : "pm", hour: "09:00" };
+}
 
 export default function ReservrPage() {
   const router = useRouter();
@@ -14,14 +23,23 @@ export default function ReservrPage() {
 
   const [pickup, setPickup] = useState("");
   const [dropoff, setDropoff] = useState("");
-  const [pickupAt, setPickupAt] = useState("");
-  const [payment, setPayment] = useState<"arrival" | "online">("arrival");
+  const [date, setDate] = useState("");
+  const [slot, setSlot] = useState<Slot>(defaultSlot());
+  const [payment, setPayment] = useState<"arrival" | "online" | "cash">("arrival");
   const [quote, setQuote] = useState<null | {
     distanceKm: number; price: number; durationMin: number; dept?: string;
     pickupLat?: number; pickupLng?: number; dropoffLat?: number; dropoffLng?: number;
+    geometry?: [number, number][];
   }>(null);
+  const [deposit, setDeposit] = useState(0);
   const [quoteErr, setQuoteErr] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Construit la date ISO à partir de date + créneau + heure.
+  function pickupAtIso(): string | null {
+    if (!date || !slot.hour) return null;
+    return `${date}T${slot.hour}:00`;
+  }
 
   async function register(e: React.FormEvent) {
     e.preventDefault();
@@ -39,6 +57,8 @@ export default function ReservrPage() {
 
   async function getQuote() {
     setQuoteErr(""); setBusy(true);
+    const pickupAt = pickupAtIso();
+    if (!pickupAt) { setQuoteErr("choisissez une date et une heure"); setBusy(false); return; }
     const r = await fetch("/api/quote", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -48,10 +68,13 @@ export default function ReservrPage() {
     setBusy(false);
     if (!r.ok) { setQuoteErr(d.error || "erreur"); setQuote(null); return; }
     setQuote(d);
+    setDeposit(payment === "cash" ? Math.round(d.price * 0.3 * 100) / 100 : 0);
   }
 
   async function book() {
     setQuoteErr(""); setBusy(true);
+    const pickupAt = pickupAtIso();
+    if (!pickupAt) { setQuoteErr("choisissez une date et une heure"); setBusy(false); return; }
     const r = await fetch("/api/book", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -60,7 +83,6 @@ export default function ReservrPage() {
     const d = await r.json();
     setBusy(false);
     if (!r.ok) { setQuoteErr(d.error || "erreur"); return; }
-    // Paiement en avance : on redirige vers Stripe (ou confirmation en mode démo).
     if (d.paymentUrl) {
       window.location.href = d.paymentUrl;
       return;
@@ -90,10 +112,32 @@ export default function ReservrPage() {
     <main className="flex-1 flex items-center justify-center px-6 py-8">
       <form onSubmit={(e) => { e.preventDefault(); getQuote(); }} className="w-full max-w-md bg-neutral-900 rounded-2xl p-6 space-y-4">
         <h1 className="text-xl font-semibold">Réserver une course</h1>
-        <input className="input" placeholder="Adresse de départ (Paris / IDF / Oise)" value={pickup} onChange={(e) => setPickup(e.target.value)} required />
-        <input className="input" placeholder="Adresse d'arrivée" value={dropoff} onChange={(e) => setDropoff(e.target.value)} required />
-        <input className="input" type="datetime-local" value={pickupAt} onChange={(e) => setPickupAt(e.target.value)} required />
-        <button className="btn" disabled={busy || !pickup || !dropoff || !pickupAt}>
+
+        <div className="space-y-3">
+          <AddressInput label="Adresse de départ" value={pickup} onChange={setPickup} required />
+          <AddressInput label="Adresse d'arrivée" value={dropoff} onChange={setDropoff} required />
+
+          <div className="grid grid-cols-2 gap-3">
+            <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+            <select
+              className="input"
+              value={slot.half}
+              onChange={(e) => setSlot({ ...slot, half: e.target.value as "am" | "pm" })}
+            >
+              <option value="am">Matin</option>
+              <option value="pm">Après-midi</option>
+            </select>
+          </div>
+          <input
+            className="input"
+            type="time"
+            value={slot.hour}
+            onChange={(e) => setSlot({ ...slot, hour: e.target.value })}
+            required
+          />
+        </div>
+
+        <button className="btn" disabled={busy || !pickup || !dropoff || !date || !slot.hour}>
           {busy ? <span className="spinner mr-2" /> : null}
           {busy ? "Calcul en cours..." : "Obtenir le devis"}
         </button>
@@ -101,26 +145,53 @@ export default function ReservrPage() {
         {quoteErr && <p className="text-red-400 text-sm">{quoteErr}</p>}
         {quote && (
           <div className="rounded-xl bg-neutral-800 p-4 space-y-2">
+            <p className="text-sm text-neutral-300">
+              Départ le <b>{new Date(pickupAtIso()!).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short" })}</b>
+            </p>
             <p>Distance : <b>{quote.distanceKm} km</b></p>
             <p>Durée estimée : <b>{quote.durationMin} min</b></p>
-            <p className="text-emerald-400 text-lg font-bold">Prix fixe : {quote.price} €</p>
+            <p className="text-emerald-400 text-lg font-bold">Prix de votre course : {quote.price} €</p>
             {quote.pickupLat != null && quote.dropoffLat != null && (
               <MapView
                 pickup={{ lat: quote.pickupLat, lng: quote.pickupLng! }}
                 dropoff={{ lat: quote.dropoffLat, lng: quote.dropoffLng! }}
+                geometry={quote.geometry}
               />
             )}
-            <label className="flex items-center gap-2 text-sm">
-              <input type="radio" checked={payment === "arrival"} onChange={() => setPayment("arrival")} />
-              Payer à l&apos;arrivée
-            </label>
-            <label className={`flex items-center gap-2 text-sm ${onlineActive ? "" : "opacity-40"}`}>
-              <input type="radio" checked={payment === "online"} onChange={() => setPayment("online")} disabled={!onlineActive} />
-              Payer en avance {onlineActive ? "(Stripe sécurisé)" : "(Stripe à configurer)"}
-            </label>
+
+            <div className="pt-2 space-y-2 border-t border-neutral-700">
+              <p className="text-sm font-semibold text-neutral-300">Mode de paiement</p>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="radio" checked={payment === "arrival"} onChange={() => { setPayment("arrival"); setDeposit(0); }} />
+                Payer à l&apos;arrivée
+              </label>
+              <label className={`flex items-center gap-2 text-sm ${onlineActive ? "" : "opacity-40"}`}>
+                <input type="radio" checked={payment === "online"} onChange={() => { setPayment("online"); setDeposit(0); }} disabled={!onlineActive} />
+                Payer en avance {onlineActive ? "(Stripe sécurisé)" : "(Stripe à configurer)"}
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="radio" checked={payment === "cash"} onChange={() => { setPayment("cash"); setDeposit(Math.round(quote.price * 0.3 * 100) / 100); }} />
+                Espèces (acompte demandé)
+              </label>
+
+              {payment === "cash" && (
+                <div className="rounded-lg bg-neutral-900 p-3 text-xs text-neutral-400 space-y-1">
+                  <p>
+                    Acompte à verser pour confirmer :{" "}
+                    <b className="text-emerald-400">{deposit} €</b> (30% du total).
+                  </p>
+                  <p className="text-red-400/90">
+                    L&apos;acompte est <b>non remboursable</b>, y compris en cas d&apos;annulation,
+                    quelle qu&apos;en soit la raison.
+                  </p>
+                  <p>Le solde ({Math.round((quote.price - deposit) * 100) / 100} €) est réglé en espèces au chauffeur.</p>
+                </div>
+              )}
+            </div>
+
             <button type="button" className="btn w-full" onClick={book} disabled={busy}>
               {busy ? <span className="spinner mr-2" /> : null}
-              {busy ? "Réservation..." : "Confirmer la réservation"}
+              {busy ? "Réservation..." : payment === "cash" ? "Réserver (acompte à régler)" : "Confirmer la réservation"}
             </button>
           </div>
         )}

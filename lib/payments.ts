@@ -1,4 +1,4 @@
-// Paiement Stripe pour VTC Karim.
+// Paiement Stripe pour VTC.
 // Si STRIPE_SECRET_KEY n'est pas défini -> mode DEMO (flux simulé, aucun appel réseau).
 // Côté client, le bouton "Payer en avance" s'active uniquement si
 // NEXT_PUBLIC_STRIPE_PUBLISHABLE est défini.
@@ -57,7 +57,7 @@ export async function createCheckout(opts: {
           currency: 'eur',
           unit_amount: Math.round(opts.amountEur * 100),
           product_data: {
-            name: `Course VTC Karim #${opts.bookingId}`,
+            name: `Course VTC #${opts.bookingId}`,
             description: opts.customerName
               ? `Client : ${opts.customerName}`
               : undefined,

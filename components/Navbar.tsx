@@ -12,7 +12,7 @@ export default function Navbar() {
       <nav className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
         <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
           <span className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-500 text-black">K</span>
-          <span>VTC Karim</span>
+          <span>VTC</span>
         </Link>
         <div className="flex items-center gap-1 text-sm">
           {links.map((l) => (

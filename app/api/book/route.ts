@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { geocode, route, estimateDuration } from '@/lib/geo';
-import { computePrice } from '@/lib/pricing';
+import { computePrice, computeDeposit } from '@/lib/pricing';
 import { getSession } from '@/lib/auth';
 import * as store from '@/lib/store';
 
@@ -19,16 +19,12 @@ export async function POST(req: NextRequest) {
   const a = await geocode(pickup);
   const b = await geocode(dropoff);
   if (!a || !b) return NextResponse.json({ error: 'adresse introuvable' }, { status: 404 });
-  if (!a.ok)
-    return NextResponse.json(
-      { error: 'départ hors zone (Paris IDF / Oise 60)' },
-      { status: 403 }
-    );
 
   const r = await route(a, b);
   const distanceKm = r.distanceKm;
   const price = computePrice(distanceKm, a.dept, new Date(pickupAt));
   const durationMin = estimateDuration(distanceKm, r.durationSec);
+  const deposit = payment === 'cash' ? computeDeposit(price) : 0;
 
   // Blocage chevauchement : 1 seul chauffeur
   const start = new Date(pickupAt).getTime();
@@ -58,7 +54,8 @@ export async function POST(req: NextRequest) {
     price,
     pickupAt,
     durationMin,
-    payment: payment === 'online' ? 'online' : 'arrival',
+    payment: payment === 'online' ? 'online' : payment === 'cash' ? 'cash' : 'arrival',
+    deposit,
   });
 
   // Paiement en avance : on crée une session Stripe (ou démo) et on renvoie l'URL.

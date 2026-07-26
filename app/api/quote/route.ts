@@ -25,6 +25,7 @@ export async function POST(req: NextRequest) {
     price,
     durationMin,
     routed: r.ok,
+    geometry: r.geometry,
     pickupOk: a.ok,
     dropoffOk: b.ok,
     dept: a.dept,

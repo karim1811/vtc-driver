@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { geocode, haversine } from '@/lib/geo';
-import { computePrice, estimateDuration } from '@/lib/pricing';
+import { geocode, route, estimateDuration } from '@/lib/geo';
+import { computePrice } from '@/lib/pricing';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,19 +14,25 @@ export async function POST(req: NextRequest) {
   const b = await geocode(dropoff);
   if (!a || !b) return NextResponse.json({ error: 'adresse introuvable' }, { status: 404 });
 
-  const distanceKm = haversine(a, b);
+  const r = await route(a, b);
+  const distanceKm = r.distanceKm;
   const pa = pickupAt ? new Date(pickupAt) : undefined;
   const price = computePrice(distanceKm, a.dept, pa);
-  const durationMin = estimateDuration(distanceKm);
+  const durationMin = estimateDuration(distanceKm, r.durationSec);
 
   return NextResponse.json({
-    distanceKm: Math.round(distanceKm * 100) / 100,
+    distanceKm,
     price,
     durationMin,
+    routed: r.ok,
     pickupOk: a.ok,
     dropoffOk: b.ok,
     dept: a.dept,
     pickupLabel: a.label,
     dropoffLabel: b.label,
+    pickupLat: a.lat,
+    pickupLng: a.lng,
+    dropoffLat: b.lat,
+    dropoffLng: b.lng,
   });
 }

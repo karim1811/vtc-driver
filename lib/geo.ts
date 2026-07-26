@@ -60,3 +60,42 @@ export function haversine(
     Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
 }
+
+// Routing réel en voiture via OSRM (public, gratuit, sans clé).
+// Renvoie la distance (km) et la durée (s) le long de la route, pas la volée droite.
+// Fallback sur haversine + vitesse moyenne si OSRM indisponible.
+export type RouteResult = { distanceKm: number; durationSec: number; ok: boolean };
+
+export async function route(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number }
+): Promise<RouteResult> {
+  const url =
+    `https://router.project-osrm.org/route/v1/driving/` +
+    `${a.lng},${a.lat};${b.lng},${b.lat}?overview=false`;
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error('osrm ' + res.status);
+    const data = await res.json();
+    const r = data?.routes?.[0];
+    if (!r) throw new Error('no route');
+    return {
+      distanceKm: Math.round((r.distance / 1000) * 100) / 100,
+      durationSec: Math.round(r.duration),
+      ok: true,
+    };
+  } catch {
+    // Fallback : volée droite * 1.3 (détour urbain) + 35 km/h.
+    const d = haversine(a, b) * 1.3;
+    return { distanceKm: Math.round(d * 100) / 100, durationSec: Math.round((d / 35) * 3600), ok: false };
+  }
+}
+
+// ETA réaliste : durée OSRM + marge de prise en charge (bufferMin).
+export function estimateDuration(distanceKm: number, durationSec?: number): number {
+  const AVG = 35; // km/h, repli si pas de routing
+  const BUFFER = 15; // min de prise en charge
+  const baseMin = durationSec ? durationSec / 60 : (distanceKm / AVG) * 60;
+  return Math.round(baseMin + BUFFER);
+}
+

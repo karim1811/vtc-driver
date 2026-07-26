@@ -23,3 +23,7 @@ npm-debug.log*
 
 # vercel
 .vercel
+
+# captures / scripts de test ad-hoc
+/screenshots/
+/scripts/

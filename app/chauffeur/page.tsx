@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import MapView from "@/components/MapView";
 
 type Booking = {
   id: number; pickup: string; dropoff: string; pickupAt: string;
   price: number; status: string; payment: string; durationMin: number;
+  pickupLat?: number; pickupLng?: number; dropoffLat?: number; dropoffLng?: number;
 };
 
 export default function ChauffeurPage() {
@@ -75,6 +77,12 @@ export default function ChauffeurPage() {
             <p className="text-sm text-neutral-400">
               {new Date(b.pickupAt).toLocaleString("fr-FR")} · {b.durationMin} min · {b.price} € · {b.payment === "online" ? "en avance" : "à l'arrivée"}
             </p>
+            {b.pickupLat != null && b.dropoffLat != null && (
+              <MapView
+                pickup={{ lat: b.pickupLat, lng: b.pickupLng! }}
+                dropoff={{ lat: b.dropoffLat, lng: b.dropoffLng! }}
+              />
+            )}
             <div className="flex gap-2 flex-wrap">
               {b.status === "pending" && <button className="btn-sm" onClick={() => setStatus(b.id, "confirmed")}>Confirmer</button>}
               {b.status !== "done" && b.status !== "cancelled" && <button className="btn-sm" onClick={() => setStatus(b.id, "done")}>Terminer</button>}

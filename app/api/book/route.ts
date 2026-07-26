@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { geocode, haversine } from '@/lib/geo';
-import { computePrice, estimateDuration } from '@/lib/pricing';
+import { geocode, route, estimateDuration } from '@/lib/geo';
+import { computePrice } from '@/lib/pricing';
 import { getSession } from '@/lib/auth';
 import * as store from '@/lib/store';
 
@@ -25,9 +25,10 @@ export async function POST(req: NextRequest) {
       { status: 403 }
     );
 
-  const distanceKm = haversine(a, b);
+  const r = await route(a, b);
+  const distanceKm = r.distanceKm;
   const price = computePrice(distanceKm, a.dept, new Date(pickupAt));
-  const durationMin = estimateDuration(distanceKm);
+  const durationMin = estimateDuration(distanceKm, r.durationSec);
 
   // Blocage chevauchement : 1 seul chauffeur
   const start = new Date(pickupAt).getTime();
@@ -59,6 +60,22 @@ export async function POST(req: NextRequest) {
     durationMin,
     payment: payment === 'online' ? 'online' : 'arrival',
   });
+
+  // Paiement en avance : on crée une session Stripe (ou démo) et on renvoie l'URL.
+  if (payment === 'online') {
+    const { getBaseUrl, createCheckout } = await import('@/lib/payments');
+    const res = await createCheckout({
+      bookingId: booking.id,
+      amountEur: booking.price,
+      customerName: s.name,
+      returnBase: getBaseUrl(req),
+    });
+    // Mode démo : pas de vrai Stripe, on considère le paiement validé tout de suite.
+    if (res.mode === 'demo') {
+      store.updateBooking(booking.id, { paid: 1, status: 'confirmed' });
+    }
+    return NextResponse.json({ ok: true, booking, paymentUrl: res.url, mode: res.mode });
+  }
 
   return NextResponse.json({ ok: true, booking });
 }

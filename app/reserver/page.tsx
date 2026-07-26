@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import MapView from "@/components/MapView";
 
 export default function ReservrPage() {
   const router = useRouter();
@@ -17,6 +18,7 @@ export default function ReservrPage() {
   const [payment, setPayment] = useState<"arrival" | "online">("arrival");
   const [quote, setQuote] = useState<null | {
     distanceKm: number; price: number; durationMin: number; dept?: string;
+    pickupLat?: number; pickupLng?: number; dropoffLat?: number; dropoffLng?: number;
   }>(null);
   const [quoteErr, setQuoteErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -58,6 +60,11 @@ export default function ReservrPage() {
     const d = await r.json();
     setBusy(false);
     if (!r.ok) { setQuoteErr(d.error || "erreur"); return; }
+    // Paiement en avance : on redirige vers Stripe (ou confirmation en mode démo).
+    if (d.paymentUrl) {
+      window.location.href = d.paymentUrl;
+      return;
+    }
     router.push("/confirmation?id=" + d.booking.id);
   }
 
@@ -77,7 +84,7 @@ export default function ReservrPage() {
     );
   }
 
-  const onlineActive = !!(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE);
+  const onlineActive = true; // backend gère Stripe ou mode démo automatiquement
 
   return (
     <main className="flex-1 flex items-center justify-center px-6 py-8">
@@ -86,7 +93,10 @@ export default function ReservrPage() {
         <input className="input" placeholder="Adresse de départ (Paris / IDF / Oise)" value={pickup} onChange={(e) => setPickup(e.target.value)} required />
         <input className="input" placeholder="Adresse d'arrivée" value={dropoff} onChange={(e) => setDropoff(e.target.value)} required />
         <input className="input" type="datetime-local" value={pickupAt} onChange={(e) => setPickupAt(e.target.value)} required />
-        <button className="btn" disabled={busy || !pickup || !dropoff || !pickupAt}>{busy ? "..." : "Obtenir le devis"}</button>
+        <button className="btn" disabled={busy || !pickup || !dropoff || !pickupAt}>
+          {busy ? <span className="spinner mr-2" /> : null}
+          {busy ? "Calcul en cours..." : "Obtenir le devis"}
+        </button>
 
         {quoteErr && <p className="text-red-400 text-sm">{quoteErr}</p>}
         {quote && (
@@ -94,15 +104,24 @@ export default function ReservrPage() {
             <p>Distance : <b>{quote.distanceKm} km</b></p>
             <p>Durée estimée : <b>{quote.durationMin} min</b></p>
             <p className="text-emerald-400 text-lg font-bold">Prix fixe : {quote.price} €</p>
+            {quote.pickupLat != null && quote.dropoffLat != null && (
+              <MapView
+                pickup={{ lat: quote.pickupLat, lng: quote.pickupLng! }}
+                dropoff={{ lat: quote.dropoffLat, lng: quote.dropoffLng! }}
+              />
+            )}
             <label className="flex items-center gap-2 text-sm">
               <input type="radio" checked={payment === "arrival"} onChange={() => setPayment("arrival")} />
-              Payer à l'arrivée
+              Payer à l&apos;arrivée
             </label>
             <label className={`flex items-center gap-2 text-sm ${onlineActive ? "" : "opacity-40"}`}>
               <input type="radio" checked={payment === "online"} onChange={() => setPayment("online")} disabled={!onlineActive} />
-              Payer en avance {onlineActive ? "" : "(Stripe à configurer)"}
+              Payer en avance {onlineActive ? "(Stripe sécurisé)" : "(Stripe à configurer)"}
             </label>
-            <button type="button" className="btn w-full" onClick={book} disabled={busy}>Confirmer la réservation</button>
+            <button type="button" className="btn w-full" onClick={book} disabled={busy}>
+              {busy ? <span className="spinner mr-2" /> : null}
+              {busy ? "Réservation..." : "Confirmer la réservation"}
+            </button>
           </div>
         )}
       </form>

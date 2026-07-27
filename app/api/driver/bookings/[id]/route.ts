@@ -11,7 +11,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'non autorisé' }, { status: 401 });
   const { id } = await params;
   const { status } = await req.json();
-  const b = store.updateBooking(Number(id), { status });
+  const b = await store.updateBooking(Number(id), { status });
   if (!b) return NextResponse.json({ error: 'introuvable' }, { status: 404 });
   return NextResponse.json({ ok: true, booking: b });
 }

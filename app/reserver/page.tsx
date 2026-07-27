@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import MapView from "@/components/MapView";
 import AddressInput from "@/components/AddressInput";
@@ -35,6 +35,15 @@ export default function ReservrPage() {
   const [quoteErr, setQuoteErr] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // Disponibilité publique
+  const [av, setAv] = useState<{ open: boolean; slots: { id: string; date: string; start: string; end: string }[] } | null>(null);
+  useEffect(() => {
+    fetch("/api/availability/public")
+      .then((r) => r.json())
+      .then((d) => setAv(d.availability))
+      .catch(() => {});
+  }, []);
+
   // Construit la date ISO à partir de date + créneau + heure.
   function pickupAtIso(): string | null {
     if (!date || !slot.hour) return null;
@@ -66,7 +75,14 @@ export default function ReservrPage() {
     });
     const d = await r.json();
     setBusy(false);
-    if (!r.ok) { setQuoteErr(d.error || "erreur"); setQuote(null); return; }
+    if (!r.ok) {
+      if (r.status === 409 && /disponible/i.test(d.error || "")) {
+        setQuoteErr("Réservation fermée : le chauffeur n'est pas disponible à cette heure. Voir les créneaux ci-dessous.");
+      } else {
+        setQuoteErr(d.error || "erreur");
+      }
+      setQuote(null); return;
+    }
     setQuote(d);
     setDeposit(payment === "cash" ? Math.round(d.price * 0.3 * 100) / 100 : 0);
   }
@@ -136,6 +152,28 @@ export default function ReservrPage() {
             required
           />
         </div>
+
+        {av && (
+          <div className="rounded-xl bg-neutral-800 p-3 text-sm space-y-2">
+            {!av.open ? (
+              <p className="text-red-400 font-semibold">Réservation fermée pour le moment (chauffeur indisponible).</p>
+            ) : av.slots.length > 0 ? (
+              <>
+                <p className="text-neutral-300 font-semibold">Créneaux disponibles du chauffeur :</p>
+                <div className="flex flex-wrap gap-2">
+                  {av.slots.map((s) => (
+                    <span key={s.id} className="px-2 py-1 rounded bg-neutral-900 text-xs">
+                      {new Date(s.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })} · {s.start}–{s.end}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-neutral-500 text-xs">Réservez uniquement sur ces plages.</p>
+              </>
+            ) : (
+              <p className="text-emerald-400 text-xs">Le chauffeur accepte les courses sur l'ensemble de ses jours ouverts.</p>
+            )}
+          </div>
+        )}
 
         <button className="btn" disabled={busy || !pickup || !dropoff || !date || !slot.hour}>
           {busy ? <span className="spinner mr-2" /> : null}

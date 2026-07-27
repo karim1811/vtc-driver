@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     const session = event.data.object as { metadata?: { bookingId?: string } };
     const id = Number(session.metadata?.bookingId);
     if (id) {
-      store.updateBooking(id, { paid: 1, status: 'confirmed' });
+      await store.updateBooking(id, { paid: 1, status: 'confirmed' });
     }
   }
   return NextResponse.json({ received: true });

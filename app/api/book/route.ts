@@ -26,10 +26,18 @@ export async function POST(req: NextRequest) {
   const durationMin = estimateDuration(distanceKm, r.durationSec);
   const deposit = payment === 'cash' ? computeDeposit(price) : 0;
 
+  // Disponibilité chauffeur (open + plages)
+  const avail = await store.isAvailableAt(pickupAt);
+  if (!avail)
+    return NextResponse.json(
+      { error: 'le chauffeur n\'est pas disponible à cette heure' },
+      { status: 409 }
+    );
+
   // Blocage chevauchement : 1 seul chauffeur
   const start = new Date(pickupAt).getTime();
   const end = start + durationMin * 60000;
-  const conflicts = store.listBookings().filter(
+  const conflicts = (await store.listBookings()).filter(
     (x) => x.status === 'pending' || x.status === 'confirmed'
   ).filter((x) => {
     const s2 = new Date(x.pickupAt).getTime();
@@ -42,7 +50,7 @@ export async function POST(req: NextRequest) {
       { status: 409 }
     );
 
-  const booking = store.createBooking({
+  const booking = await store.createBooking({
     userId: Number(s.sub),
     pickup,
     dropoff,
@@ -69,7 +77,7 @@ export async function POST(req: NextRequest) {
     });
     // Mode démo : pas de vrai Stripe, on considère le paiement validé tout de suite.
     if (res.mode === 'demo') {
-      store.updateBooking(booking.id, { paid: 1, status: 'confirmed' });
+      await store.updateBooking(booking.id, { paid: 1, status: 'confirmed' });
     }
     return NextResponse.json({ ok: true, booking, paymentUrl: res.url, mode: res.mode });
   }

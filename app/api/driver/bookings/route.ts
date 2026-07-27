@@ -9,8 +9,7 @@ export async function GET() {
   const s = await getSession();
   if (!s || s.role !== 'driver')
     return NextResponse.json({ error: 'non autorisé' }, { status: 401 });
-  const bookings = store
-    .listBookings()
+  const bookings = (await store.listBookings())
     .sort((a, b) => new Date(a.pickupAt).getTime() - new Date(b.pickupAt).getTime());
   return NextResponse.json({ bookings });
 }

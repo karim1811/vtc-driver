@@ -10,7 +10,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const b = store.getBooking(Number(id));
+  const b = await store.getBooking(Number(id));
   if (!b) return NextResponse.json({ error: 'introuvable' }, { status: 404 });
   return NextResponse.json({
     id: b.id,

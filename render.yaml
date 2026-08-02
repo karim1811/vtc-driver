@@ -1,0 +1,36 @@
+# Render Blueprint — déploiement VTC Karim
+# Doc: https://render.com/docs/blueprint-spec
+# Déploie un Web Service Next.js 16 + base Turso (libSQL) distante.
+
+services:
+  - type: web
+    name: vtc-driver
+    runtime: node
+    region: frankfurt # EU, proche de la France
+    branch: master
+    # Build
+    buildCommand: npm install && npm run build
+    # Start (Next 16 en mode production)
+    startCommand: npm run start
+    # Ressources (free tier = 0€, suppend après inactivité)
+    plan: free
+    # Variables d'environnement (les SECRETS sont à remplir dans le dashboard Render)
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NEXT_PUBLIC_STRIPE_PUBLISHABLE
+        sync: false # laisse vide = mode démo (pas de paiement Stripe)
+      - key: AUTH_SECRET
+        generateValue: true # Render génère un secret aléatoire
+      - key: DRIVER_PASSWORD
+        sync: false # À renseigner OBLIGATOIREMENT dans le dashboard
+      - key: TURSO_URL
+        sync: false # À renseigner (ex: libsql://vtc-driver-xxx.turso.io)
+      - key: TURSO_TOKEN
+        sync: false # À renseigner (tokenDB de la base Turso)
+      - key: STRIPE_SECRET_KEY
+        sync: false # laisse vide = mode démo
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false # laisse vide = mode démo
+      - key: APP_URL
+        value: https://vtc-driver.onrender.com # remplace par ton vrai sous-domaine Render

@@ -3,13 +3,14 @@ import path from 'path';
 
 // ============================================================================
 // STORE HYBRIDE
-//  - PROD (Render) : Turso (libSQL) dès que TURSO_URL est défini -> persistant.
+//  - PROD (Render) : Postgres via Neon (https://neon.tech) dès que DATABASE_URL
+//    est défini -> persistant, fiable, gratuit sans CB.
 //  - DEV local     : fichier JSON (data/store.json) -> zéro config, test immédiat.
 // Toute la logique métier est identique ; seul le backend change. Pour migrer
-// plus tard (Postgres, Render Disk...), on ne touche QUE ce fichier.
+// plus tard, on ne touche QUE ce fichier.
 // ============================================================================
 
-const USE_TURSO = !!process.env.TURSO_URL;
+const USE_DB = !!process.env.DATABASE_URL;
 
 // ---- Types ----
 export type InviteCode = { code: string; label: string; usedBy?: number };
@@ -92,45 +93,52 @@ function j(): Store {
 }
 
 // ============================================================================
-// BACKEND TURSO (prod)
+// BACKEND POSTGRES (prod) via @neondatabase/serverless
 // ============================================================================
-import { createClient, type Client } from '@libsql/client';
-let _db: Client | null = null;
-function db(): Client {
-  if (!_db) {
-    _db = createClient({ url: process.env.TURSO_URL!, authToken: process.env.TURSO_TOKEN });
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
+let _sql: NeonQueryFunction<false, false> | null = null;
+let _schemaReady: Promise<void> | null = null;
+function sql(): NeonQueryFunction<false, false> {
+  if (!_sql) {
+    if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL manquant');
+    _sql = neon(process.env.DATABASE_URL!);
   }
-  return _db;
+  return _sql;
 }
-async function t(): Promise<void> {
-  await db().execute(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, phone TEXT, email TEXT,
-      invite_code TEXT, created_at TEXT
-    );
-    CREATE TABLE IF NOT EXISTS codes (
-      code TEXT PRIMARY KEY, label TEXT, used_by INTEGER
-    );
-    CREATE TABLE IF NOT EXISTS bookings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, pickup TEXT, dropoff TEXT,
-      pickup_lat REAL, pickup_lng REAL, dropoff_lat REAL, dropoff_lng REAL,
-      distance_km REAL, price REAL, pickup_at TEXT, duration_min INTEGER,
-      status TEXT, payment TEXT, deposit REAL, paid INTEGER, created_at TEXT
-    );
-    CREATE TABLE IF NOT EXISTS availability (
-      id INTEGER PRIMARY KEY CHECK (id = 1), open INTEGER DEFAULT 1, slots TEXT DEFAULT '[]'
-    );
-  `);
-  for (let i = 0; i < DEFAULT_CODES.length; i++) {
-    await db().execute({
-      sql: 'INSERT OR IGNORE INTO codes (code, label) VALUES (?, ?)',
-      args: [DEFAULT_CODES[i], 'seed ' + i],
+async function ensureSchema(): Promise<void> {
+  if (!_schemaReady) {
+    _schemaReady = (async () => {
+      const q = sql();
+      await q`
+        CREATE TABLE IF NOT EXISTS users (
+          id SERIAL PRIMARY KEY, name TEXT, phone TEXT, email TEXT,
+          invite_code TEXT, created_at TEXT
+        )`;
+      await q`
+        CREATE TABLE IF NOT EXISTS codes (
+          code TEXT PRIMARY KEY, label TEXT, used_by INTEGER
+        )`;
+      await q`
+        CREATE TABLE IF NOT EXISTS bookings (
+          id SERIAL PRIMARY KEY, user_id INTEGER, pickup TEXT, dropoff TEXT,
+          pickup_lat REAL, pickup_lng REAL, dropoff_lat REAL, dropoff_lng REAL,
+          distance_km REAL, price REAL, pickup_at TEXT, duration_min INTEGER,
+          status TEXT, payment TEXT, deposit REAL, paid INTEGER, created_at TEXT
+        )`;
+      await q`
+        CREATE TABLE IF NOT EXISTS availability (
+          id INTEGER PRIMARY KEY CHECK (id = 1), open INTEGER DEFAULT 1, slots TEXT DEFAULT '[]'
+        )`;
+      for (let i = 0; i < DEFAULT_CODES.length; i++) {
+        await q`INSERT INTO codes (code, label) VALUES (${DEFAULT_CODES[i]}, ${'seed ' + i}) ON CONFLICT (code) DO NOTHING`;
+      }
+      await q`INSERT INTO availability (id, open, slots) VALUES (1, 1, '[]') ON CONFLICT (id) DO NOTHING`;
+    })().catch((e) => {
+      _schemaReady = null; // retry next call
+      throw e;
     });
   }
-  await db().execute({
-    sql: 'INSERT OR IGNORE INTO availability (id, open, slots) VALUES (1, 1, ?)',
-    args: ['[]'],
-  });
+  return _schemaReady;
 }
 function rowToBooking(r: any): Booking {
   return {
@@ -160,32 +168,32 @@ function rowToBooking(r: any): Booking {
 
 // ---- codes ----
 export async function listCodes(): Promise<InviteCode[]> {
-  if (!USE_TURSO) return j().codes;
-  await t();
-  const r = await db().execute('SELECT code, label, used_by FROM codes');
-  return r.rows.map((x: any) => ({ code: x.code, label: x.label, usedBy: x.used_by ? Number(x.used_by) : undefined }));
+  if (!USE_DB) return j().codes;
+  await ensureSchema();
+  const rows: any[] = await sql()`SELECT code, label, used_by FROM codes`;
+  return rows.map((x) => ({ code: x.code, label: x.label, usedBy: x.used_by != null ? Number(x.used_by) : undefined }));
 }
 export async function findCode(code: string): Promise<InviteCode | undefined> {
-  if (!USE_TURSO) return j().codes.find((c) => c.code === code);
-  await t();
-  const r = await db().execute({ sql: 'SELECT code, label, used_by FROM codes WHERE code = ?', args: [code] });
-  if (!r.rows[0]) return undefined;
-  const x: any = r.rows[0];
-  return { code: x.code, label: x.label, usedBy: x.used_by ? Number(x.used_by) : undefined };
+  if (!USE_DB) return j().codes.find((c) => c.code === code);
+  await ensureSchema();
+  const rows: any[] = await sql()`SELECT code, label, used_by FROM codes WHERE code = ${code}`;
+  if (!rows[0]) return undefined;
+  const x = rows[0];
+  return { code: x.code, label: x.label, usedBy: x.used_by != null ? Number(x.used_by) : undefined };
 }
 export async function consumeCode(code: string, userId: number): Promise<void> {
-  if (!USE_TURSO) {
+  if (!USE_DB) {
     const s = j();
     const c = s.codes.find((x) => x.code === code);
     if (c) c.usedBy = userId;
     rawWrite(s);
     return;
   }
-  await t();
-  await db().execute({ sql: 'UPDATE codes SET used_by = ? WHERE code = ?', args: [userId, code] });
+  await ensureSchema();
+  await sql()`UPDATE codes SET used_by = ${userId} WHERE code = ${code}`;
 }
 export async function seedCodes(codes: string[]): Promise<void> {
-  if (!USE_TURSO) {
+  if (!USE_DB) {
     const s = j();
     codes.forEach((code, i) => {
       if (!s.codes.find((c) => c.code === code)) s.codes.push({ code, label: 'seed ' + i });
@@ -193,15 +201,15 @@ export async function seedCodes(codes: string[]): Promise<void> {
     rawWrite(s);
     return;
   }
-  await t();
+  await ensureSchema();
   for (const c of codes) {
-    await db().execute({ sql: 'INSERT OR IGNORE INTO codes (code, label) VALUES (?, ?)', args: [c, 'seed'] });
+    await sql()`INSERT INTO codes (code, label) VALUES (${c}, ${'seed'}) ON CONFLICT (code) DO NOTHING`;
   }
 }
 
 // ---- users ----
 export async function createUser(u: Omit<User, 'id' | 'createdAt'>): Promise<User> {
-  if (!USE_TURSO) {
+  if (!USE_DB) {
     const s = j();
     const user: User = {
       id: s.users.length ? Math.max(...s.users.map((x) => x.id)) + 1 : 1,
@@ -212,40 +220,39 @@ export async function createUser(u: Omit<User, 'id' | 'createdAt'>): Promise<Use
     rawWrite(s);
     return user;
   }
-  await t();
-  const res = await db().execute({
-    sql: 'INSERT INTO users (name, phone, email, invite_code, created_at) VALUES (?, ?, ?, ?, ?)',
-    args: [u.name, u.phone ?? null, u.email ?? null, u.inviteCode ?? null, new Date().toISOString()],
-  });
-  const id = Number(res.lastInsertRowid);
+  await ensureSchema();
+  const res: any[] = await sql()`INSERT INTO users (name, phone, email, invite_code, created_at)
+    VALUES (${u.name}, ${u.phone ?? null}, ${u.email ?? null}, ${u.inviteCode ?? null}, ${new Date().toISOString()})
+    RETURNING id`;
+  const id = Number(res[0].id);
   return { id, createdAt: new Date().toISOString(), ...u };
 }
 export async function getUser(id: number): Promise<User | undefined> {
-  if (!USE_TURSO) return j().users.find((x) => x.id === id);
-  await t();
-  const r = await db().execute({ sql: 'SELECT * FROM users WHERE id = ?', args: [id] });
-  if (!r.rows[0]) return undefined;
-  const x: any = r.rows[0];
+  if (!USE_DB) return j().users.find((x) => x.id === id);
+  await ensureSchema();
+  const rows: any[] = await sql()`SELECT * FROM users WHERE id = ${id}`;
+  if (!rows[0]) return undefined;
+  const x = rows[0];
   return { id: Number(x.id), name: x.name, phone: x.phone, email: x.email, inviteCode: x.invite_code, createdAt: x.created_at };
 }
 
 // ---- bookings ----
 export async function listBookings(): Promise<Booking[]> {
-  if (!USE_TURSO) return j().bookings;
-  await t();
-  const r = await db().execute('SELECT * FROM bookings ORDER BY pickup_at');
-  return r.rows.map(rowToBooking);
+  if (!USE_DB) return j().bookings;
+  await ensureSchema();
+  const rows: any[] = await sql()`SELECT * FROM bookings ORDER BY pickup_at`;
+  return rows.map(rowToBooking);
 }
 export async function getBooking(id: number): Promise<Booking | undefined> {
-  if (!USE_TURSO) return j().bookings.find((x) => x.id === id);
-  await t();
-  const r = await db().execute({ sql: 'SELECT * FROM bookings WHERE id = ?', args: [id] });
-  return r.rows[0] ? rowToBooking(r.rows[0]) : undefined;
+  if (!USE_DB) return j().bookings.find((x) => x.id === id);
+  await ensureSchema();
+  const rows: any[] = await sql()`SELECT * FROM bookings WHERE id = ${id}`;
+  return rows[0] ? rowToBooking(rows[0]) : undefined;
 }
 export async function createBooking(
   b: Omit<Booking, 'id' | 'createdAt' | 'status' | 'paid' | 'deposit'> & { deposit?: number }
 ): Promise<Booking> {
-  if (!USE_TURSO) {
+  if (!USE_DB) {
     const s = j();
     const booking: Booking = {
       id: s.bookings.length ? Math.max(...s.bookings.map((x) => x.id)) + 1 : 1,
@@ -259,22 +266,18 @@ export async function createBooking(
     rawWrite(s);
     return booking;
   }
-  await t();
-  const res = await db().execute({
-    sql: `INSERT INTO bookings
-      (user_id, pickup, dropoff, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
-       distance_km, price, pickup_at, duration_min, status, payment, deposit, paid, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 0, ?)`,
-    args: [
-      b.userId, b.pickup, b.dropoff, b.pickupLat, b.pickupLng, b.dropoffLat, b.dropoffLng,
-      b.distanceKm, b.price, b.pickupAt, b.durationMin, b.payment, b.deposit ?? 0, new Date().toISOString(),
-    ],
-  });
-  const id = Number(res.lastInsertRowid);
+  await ensureSchema();
+  const res: any[] = await sql()`INSERT INTO bookings
+    (user_id, pickup, dropoff, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
+     distance_km, price, pickup_at, duration_min, status, payment, deposit, paid, created_at)
+    VALUES (${b.userId}, ${b.pickup}, ${b.dropoff}, ${b.pickupLat}, ${b.pickupLng}, ${b.dropoffLat}, ${b.dropoffLng},
+     ${b.distanceKm}, ${b.price}, ${b.pickupAt}, ${b.durationMin}, ${'pending'}, ${b.payment}, ${b.deposit ?? 0}, ${0}, ${new Date().toISOString()})
+    RETURNING id`;
+  const id = Number(res[0].id);
   return { id, createdAt: new Date().toISOString(), status: 'pending', paid: 0, deposit: b.deposit ?? 0, ...b };
 }
 export async function updateBooking(id: number, patch: Partial<Booking>): Promise<Booking | undefined> {
-  if (!USE_TURSO) {
+  if (!USE_DB) {
     const s = j();
     const b = s.bookings.find((x) => x.id === id);
     if (!b) return undefined;
@@ -282,37 +285,31 @@ export async function updateBooking(id: number, patch: Partial<Booking>): Promis
     rawWrite(s);
     return b;
   }
-  await t();
+  await ensureSchema();
   const cur = await getBooking(id);
   if (!cur) return undefined;
   const merged = { ...cur, ...patch };
-  await db().execute({
-    sql: `UPDATE bookings SET status = ?, payment = ?, deposit = ?, paid = ? WHERE id = ?`,
-    args: [merged.status, merged.payment, merged.deposit, merged.paid, id],
-  });
+  await sql()`UPDATE bookings SET status = ${merged.status}, payment = ${merged.payment}, deposit = ${merged.deposit}, paid = ${merged.paid} WHERE id = ${id}`;
   return merged;
 }
 
 // ---- availability ----
 export async function getAvailability(): Promise<Availability> {
-  if (!USE_TURSO) return j().availability;
-  await t();
-  const r = await db().execute('SELECT open, slots FROM availability WHERE id = 1');
-  const x: any = r.rows[0];
+  if (!USE_DB) return j().availability;
+  await ensureSchema();
+  const rows: any[] = await sql()`SELECT open, slots FROM availability WHERE id = 1`;
+  const x = rows[0];
   return { open: !!Number(x.open), slots: JSON.parse(x.slots || '[]') };
 }
 export async function setAvailability(av: Availability): Promise<void> {
-  if (!USE_TURSO) {
+  if (!USE_DB) {
     const s = j();
     s.availability = av;
     rawWrite(s);
     return;
   }
-  await t();
-  await db().execute({
-    sql: 'UPDATE availability SET open = ?, slots = ? WHERE id = 1',
-    args: [av.open ? 1 : 0, JSON.stringify(av.slots)],
-  });
+  await ensureSchema();
+  await sql()`UPDATE availability SET open = ${av.open ? 1 : 0}, slots = ${JSON.stringify(av.slots)} WHERE id = 1`;
 }
 export async function isAvailableAt(pickupAt: string): Promise<boolean> {
   const av = await getAvailability();

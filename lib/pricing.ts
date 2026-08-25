@@ -11,6 +11,7 @@ export const PRICING = {
   nightEnd: 6, // fin majoration nocturne (6h)
   nightMult: 1.2,
   depositRate: 0.3, // acompte espèces = 30% du total (non remboursable)
+  depositRateArrival: 0.1, // acompte "à l'arrivée" = 10% du total (non remboursable)
 };
 
 export function zoneRate(dept?: string): number {
@@ -32,9 +33,10 @@ export function computePrice(
   return Math.round(price * 100) / 100;
 }
 
-// Acompte pour paiement en espèces : % du total, arrondi.
-export function computeDeposit(price: number): number {
-  return Math.round(price * PRICING.depositRate * 100) / 100;
+// Acompte selon mode de paiement. "à l'arrivée" => 10%, "espèces" => 30%, en avance => 0.
+export function computeDeposit(price: number, payment: "arrival" | "online" | "cash"): number {
+  const rate = payment === "cash" ? PRICING.depositRate : payment === "arrival" ? PRICING.depositRateArrival : 0;
+  return Math.round(price * rate * 100) / 100;
 }
 
 export function estimateDuration(distanceKm: number): number {

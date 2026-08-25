@@ -21,5 +21,13 @@ export async function GET(
     status: b.status,
     payment: b.payment,
     paid: b.paid,
+    deposit: b.deposit,
+    pickupLat: b.pickupLat,
+    pickupLng: b.pickupLng,
+    dropoffLat: b.dropoffLat,
+    dropoffLng: b.dropoffLng,
+    driverLat: b.driverLat ?? null,
+    driverLng: b.driverLng ?? null,
+    sharedAt: b.sharedAt ?? null,
   });
 }

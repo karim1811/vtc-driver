@@ -24,7 +24,8 @@ export async function POST(req: NextRequest) {
   const distanceKm = r.distanceKm;
   const price = computePrice(distanceKm, a.dept, new Date(pickupAt));
   const durationMin = estimateDuration(distanceKm, r.durationSec);
-  const deposit = payment === 'cash' ? computeDeposit(price) : 0;
+  const paymentMode = payment === 'online' ? 'online' : payment === 'cash' ? 'cash' : 'arrival';
+  const deposit = computeDeposit(price, paymentMode);
 
   // Disponibilité chauffeur (open + plages)
   const avail = await store.isAvailableAt(pickupAt);
@@ -66,16 +67,17 @@ export async function POST(req: NextRequest) {
     deposit,
   });
 
-  // Paiement en avance : on crée une session Stripe (ou démo) et on renvoie l'URL.
-  if (payment === 'online') {
+  // Paiement : on déclenche un acompte pour "à l'arrivée" (10%) et "espèces" (30%).
+  // "En avance" paie le total via Stripe.
+  if (paymentMode === 'online' || deposit > 0) {
     const { getBaseUrl, createCheckout } = await import('@/lib/payments');
     const res = await createCheckout({
       bookingId: booking.id,
-      amountEur: booking.price,
+      amountEur: paymentMode === 'online' ? booking.price : booking.deposit,
       customerName: s.name,
       returnBase: getBaseUrl(req),
     });
-    // Mode démo : pas de vrai Stripe, on considère le paiement validé tout de suite.
+    // Mode démo : pas de vrai Stripe, on considère l'acompte validé tout de suite.
     if (res.mode === 'demo') {
       await store.updateBooking(booking.id, { paid: 1, status: 'confirmed' });
     }

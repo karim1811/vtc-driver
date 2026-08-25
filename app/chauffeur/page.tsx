@@ -28,6 +28,10 @@ export default function ChauffeurPage() {
   const [newCode, setNewCode] = useState<InviteCode | null>(null);
   const [codeBusy, setCodeBusy] = useState(false);
 
+  // partage position live
+  const [sharingId, setSharingId] = useState<number | null>(null);
+  const [shareMsg, setShareMsg] = useState("");
+
   async function loadCodes() {
     const r = await fetch("/api/driver/codes");
     if (r.ok) setCodes(await r.json().then((d) => d.codes));
@@ -97,6 +101,36 @@ export default function ChauffeurPage() {
     refresh();
   }
 
+  // Partage de la position GPS (le chauffeur "diffuse" sa voiture sur la carte client).
+  function shareLocation(id: number) {
+    if (!navigator.geolocation) { setShareMsg("Géolocalisation non supportée par ce navigateur."); return; }
+    setSharingId(id);
+    setShareMsg("Position partagée en direct…");
+    const watch = navigator.geolocation.watchPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        await fetch("/api/driver/location", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bookingId: id, lat: latitude, lng: longitude }),
+        });
+      },
+      () => setShareMsg("Impossible de lire la position GPS."),
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
+    );
+    // On stocke le watch pour pouvoir l'arrêter (refresh / départ).
+    (window as any).__vtcWatch = watch;
+  }
+  function stopSharing() {
+    if ((window as any).__vtcWatch != null) {
+      navigator.geolocation.clearWatch((window as any).__vtcWatch);
+      (window as any).__vtcWatch = null;
+    }
+    setSharingId(null);
+    setShareMsg("Diffusion arrêtée.");
+  }
+  useEffect(() => () => stopSharing(), []);
+
   if (!authed) {
     return (
       <main className="flex-1 flex items-center justify-center px-6">
@@ -113,24 +147,27 @@ export default function ChauffeurPage() {
   return (
     <main className="flex-1 px-4 py-8">
       <div className="max-w-3xl mx-auto space-y-6">
-        {/* Disponibilité */}
+        {/* Disponibilité — switch type Uber Driver */}
         <section className="bg-neutral-900 rounded-2xl p-5 space-y-4">
-          <div className="flex justify-between items-center">
-            <h2 className="text-lg font-semibold">Mes disponibilités</h2>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Statut</h2>
+              <p className="text-sm text-neutral-400">
+                {av.open ? "Vous êtes en ligne — les clients peuvent réserver." : "Vous êtes hors ligne — aucune réservation possible."}
+              </p>
+            </div>
             <button
               onClick={toggleOpen}
-              className={`px-4 py-2 rounded-full text-sm font-semibold ${av.open ? "bg-emerald-500 text-black" : "bg-red-500 text-white"}`}
+              role="switch"
+              aria-checked={av.open}
+              className={`relative h-9 w-16 rounded-full transition-colors ${av.open ? "bg-emerald-500" : "bg-neutral-700"}`}
             >
-              {av.open ? "Disponible" : "Indisponible"}
+              <span className={`absolute top-1 h-7 w-7 rounded-full bg-white transition-transform ${av.open ? "translate-x-8" : "translate-x-1"}`} />
             </button>
           </div>
-          <p className="text-xs text-neutral-400">
-            Bouton sur <b>Indisponible</b> : plus aucune réservation possible (emploi, repos...).
-            Avec des plages définies ci-dessous, les clients ne réservent que sur ces créneaux.
-          </p>
 
           <div className="space-y-2">
-            {av.slots.length === 0 && <p className="text-sm text-neutral-500">Aucune plage définie — réservations ouvertes en permanence tant que « Disponible ».</p>}
+            {av.slots.length === 0 && <p className="text-sm text-neutral-500">Aucune plage définie — réservations ouvertes en permanence tant que vous êtes « en ligne ».</p>}
             {av.slots.map((s) => (
               <div key={s.id} className="flex items-center justify-between bg-neutral-800 rounded-lg px-3 py-2 text-sm">
                 <span>{new Date(s.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })} · {s.start}–{s.end}</span>
@@ -187,7 +224,7 @@ export default function ChauffeurPage() {
           </div>
           {bookings.length === 0 && <p className="text-neutral-400">Aucune course.</p>}
           {bookings.map((b) => (
-            <div key={b.id} className="bg-neutral-900 rounded-xl p-4 space-y-2">
+            <div key={b.id} className="bg-neutral-900 rounded-xl p-4 space-y-3">
               <div className="flex justify-between">
                 <span className="font-semibold">#{b.id}</span>
                 <span className="text-xs px-2 py-1 rounded bg-neutral-800">{b.status}</span>
@@ -199,7 +236,7 @@ export default function ChauffeurPage() {
                   ? "en avance"
                   : b.payment === "cash"
                   ? `espèces (acompte ${b.deposit} €)`
-                  : "à l'arrivée"}
+                  : `à l'arrivée (acompte ${b.deposit} €)`}
               </p>
               {b.pickupLat != null && b.dropoffLat != null && (
                 <MapView
@@ -212,6 +249,16 @@ export default function ChauffeurPage() {
                 {b.status !== "done" && b.status !== "cancelled" && <button className="btn-sm" onClick={() => setStatus(b.id, "done")}>Terminer</button>}
                 {b.status !== "cancelled" && <button className="btn-sm-danger" onClick={() => setStatus(b.id, "cancelled")}>Annuler</button>}
               </div>
+              {(b.status === "confirmed" || b.status === "pending") && (
+                <div className="pt-2 border-t border-neutral-700">
+                  {sharingId === b.id ? (
+                    <button className="btn-sm-danger w-full" onClick={stopSharing}>Arrêter le partage de position</button>
+                  ) : (
+                    <button className="btn-sm w-full" onClick={() => shareLocation(b.id)}>📍 Partager ma position (suivi live)</button>
+                  )}
+                  <p className="text-xs text-neutral-400 mt-1">{shareMsg}</p>
+                </div>
+              )}
             </div>
           ))}
         </section>

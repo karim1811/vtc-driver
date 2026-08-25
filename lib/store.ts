@@ -72,6 +72,10 @@ export type Booking = {
   deposit: number;
   paid: number;
   createdAt: string;
+  // Suivi véhicule live (géoloc chauffeur)
+  driverLat?: number | null;
+  driverLng?: number | null;
+  sharedAt?: string | null;
 };
 export type Slot = { id: string; date: string; start: string; end: string };
 export type Availability = { open: boolean; slots: Slot[] };
@@ -155,7 +159,8 @@ async function ensureSchema(): Promise<void> {
           id SERIAL PRIMARY KEY, user_id INTEGER, pickup TEXT, dropoff TEXT,
           pickup_lat REAL, pickup_lng REAL, dropoff_lat REAL, dropoff_lng REAL,
           distance_km REAL, price REAL, pickup_at TEXT, duration_min INTEGER,
-          status TEXT, payment TEXT, deposit REAL, paid INTEGER, created_at TEXT
+          status TEXT, payment TEXT, deposit REAL, paid INTEGER, created_at TEXT,
+          driver_lat REAL, driver_lng REAL, shared_at TEXT
         )`;
       await q`
         CREATE TABLE IF NOT EXISTS availability (
@@ -191,6 +196,9 @@ function rowToBooking(r: any): Booking {
     deposit: Number(r.deposit ?? 0),
     paid: Number(r.paid ?? 0),
     createdAt: r.created_at,
+    driverLat: r.driver_lat != null ? Number(r.driver_lat) : null,
+    driverLng: r.driver_lng != null ? Number(r.driver_lng) : null,
+    sharedAt: r.shared_at ?? null,
   };
 }
 
@@ -348,8 +356,17 @@ export async function updateBooking(id: number, patch: Partial<Booking>): Promis
   const cur = await getBooking(id);
   if (!cur) return undefined;
   const merged = { ...cur, ...patch };
-  await sql()`UPDATE bookings SET status = ${merged.status}, payment = ${merged.payment}, deposit = ${merged.deposit}, paid = ${merged.paid} WHERE id = ${id}`;
+  await sql()`UPDATE bookings SET status = ${merged.status}, payment = ${merged.payment}, deposit = ${merged.deposit}, paid = ${merged.paid}, driver_lat = ${merged.driverLat ?? null}, driver_lng = ${merged.driverLng ?? null}, shared_at = ${merged.sharedAt ?? null} WHERE id = ${id}`;
   return merged;
+}
+
+// ---- suivi véhicule live ----
+export async function updateDriverLocation(
+  id: number,
+  lat: number,
+  lng: number
+): Promise<Booking | undefined> {
+  return updateBooking(id, { driverLat: lat, driverLng: lng, sharedAt: new Date().toISOString() });
 }
 
 // ---- availability ----

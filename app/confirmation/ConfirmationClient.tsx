@@ -57,10 +57,13 @@ export default function ConfirmationInner() {
                   espèces — acompte <b className="text-emerald-400">{b.deposit} €</b> à régler (non remboursable)
                 </span>
               ) : (
-                <span>à l&apos;arrivée</span>
+                <span>
+                  à l'arrivée — acompte <b className="text-emerald-400">{b.deposit} €</b> payé à la réservation (non remboursable), le reste réglé au chauffeur
+                </span>
               )}
             </p>
             <p className="text-neutral-400">Statut : {b.status}</p>
+            <a href={`/suivi?id=${b.id}`} className="btn block text-center">Suivre ma course en direct</a>
           </div>
         )}
         {(paidParam === "1" || b?.paid) && (

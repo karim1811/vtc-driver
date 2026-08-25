@@ -258,7 +258,7 @@ export default function ReservrPage() {
             <div className="pt-2 space-y-2 border-t border-neutral-700">
               <p className="text-sm font-semibold text-neutral-300">Mode de paiement</p>
               <label className="flex items-center gap-2 text-sm">
-                <input type="radio" checked={payment === "arrival"} onChange={() => { setPayment("arrival"); setDeposit(0); }} />
+                <input type="radio" checked={payment === "arrival"} onChange={() => { setPayment("arrival"); setDeposit(Math.round(quote.price * 0.1 * 100) / 100); }} />
                 Payer à l'arrivée
               </label>
               <label className={`flex items-center gap-2 text-sm ${onlineActive ? "" : "opacity-40"}`}>
@@ -270,6 +270,13 @@ export default function ReservrPage() {
                 Espèces (acompte demandé)
               </label>
 
+              {payment === "arrival" && (
+                <div className="rounded-lg bg-neutral-900 p-3 text-xs text-neutral-400 space-y-1">
+                  <p>Acompte à verser maintenant pour confirmer : <b className="text-emerald-400">{deposit} €</b> (10% du total).</p>
+                  <p className="text-red-400/90">L'acompte est <b>non remboursable</b>, y compris en cas d'annulation, quelle qu'en soit la raison.</p>
+                  <p>Le solde ({Math.round((quote.price - deposit) * 100) / 100} €) est réglé en espèces ou carte au chauffeur.</p>
+                </div>
+              )}
               {payment === "cash" && (
                 <div className="rounded-lg bg-neutral-900 p-3 text-xs text-neutral-400 space-y-1">
                   <p>Acompte à verser pour confirmer : <b className="text-emerald-400">{deposit} €</b> (30% du total).</p>

@@ -12,7 +12,35 @@ export type GeoResult = {
   ok: boolean;
 };
 
+// Accepte soit une adresse texte, soit "lat,lng" (pins posés à la main sur la carte).
 export async function geocode(addr: string): Promise<GeoResult | null> {
+  // Coordonnées directes "lat,lng" (proviennent des pins de la carte client).
+  const m = addr.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (m) {
+    const lat = parseFloat(m[1]);
+    const lng = parseFloat(m[2]);
+    let label = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    let dept: string | undefined;
+    try {
+      const rev = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`,
+        { headers: { 'User-Agent': UA, Accept: 'application/json' }, cache: 'no-store' }
+      );
+      if (rev.ok) {
+        const j = await rev.json();
+        if (j?.display_name) {
+          label = j.display_name as string;
+          if (label.includes('Oise')) dept = '60';
+          else {
+            const cp = label.match(/\b(\d{5})\b/);
+            if (cp) dept = cp[1].slice(0, 2);
+          }
+        }
+      }
+    } catch { /* label brut si reverse indispo */ }
+    return { lat, lng, label, dept, ok: true };
+  }
+
   const url =
     'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' +
     encodeURIComponent(addr);

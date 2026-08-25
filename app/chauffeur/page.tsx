@@ -10,6 +10,7 @@ type Booking = {
 };
 type Slot = { id: string; date: string; start: string; end: string };
 type Availability = { open: boolean; slots: Slot[] };
+type InviteCode = { code: string; label?: string; usedBy?: number };
 
 export default function ChauffeurPage() {
   const [pw, setPw] = useState("");
@@ -22,8 +23,28 @@ export default function ChauffeurPage() {
   const [av, setAv] = useState<Availability>({ open: true, slots: [] });
   const [newSlot, setNewSlot] = useState<Slot>({ id: "", date: "", start: "08:00", end: "12:00" });
 
+  // codes d'invitation
+  const [codes, setCodes] = useState<InviteCode[]>([]);
+  const [newCode, setNewCode] = useState<InviteCode | null>(null);
+  const [codeBusy, setCodeBusy] = useState(false);
+
+  async function loadCodes() {
+    const r = await fetch("/api/driver/codes");
+    if (r.ok) setCodes(await r.json().then((d) => d.codes));
+  }
+  async function genCode() {
+    setCodeBusy(true);
+    const r = await fetch("/api/driver/codes", { method: "POST" });
+    setCodeBusy(false);
+    if (r.ok) {
+      const d = await r.json();
+      setNewCode(d.code);
+      loadCodes();
+    }
+  }
+
   useEffect(() => {
-    if (authed) { refresh(); loadAv(); }
+    if (authed) { refresh(); loadAv(); loadCodes(); }
   }, [authed]);
 
   async function login(e: React.FormEvent) {
@@ -124,6 +145,38 @@ export default function ChauffeurPage() {
             <input className="input" type="time" value={newSlot.end} onChange={(e) => setNewSlot({ ...newSlot, end: e.target.value })} />
           </div>
           <button className="btn-sm" onClick={addSlot} disabled={!newSlot.date}>Ajouter une plage</button>
+        </section>
+
+        {/* Codes d'invitation */}
+        <section className="bg-neutral-900 rounded-2xl p-5 space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-lg font-semibold">Codes d'invitation</h2>
+            <button className="btn-sm" onClick={genCode} disabled={codeBusy}>
+              {codeBusy ? "Génération..." : "Générer un code"}
+            </button>
+          </div>
+          <p className="text-xs text-neutral-400">
+            Donnez un code à chaque client. Il l'utilise sur la page « Réserver » pour accéder au service.
+            Un code ne peut être utilisé qu'une seule fois.
+          </p>
+          {newCode && (
+            <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3">
+              <p className="text-xs text-neutral-300">Nouveau code à transmettre :</p>
+              <p className="text-2xl font-mono font-bold text-emerald-400 tracking-widest">{newCode.code}</p>
+              <button className="text-xs text-neutral-400 hover:text-white mt-1" onClick={() => navigator.clipboard?.writeText(newCode.code)}>copier</button>
+            </div>
+          )}
+          <div className="space-y-2">
+            {codes.length === 0 && <p className="text-sm text-neutral-500">Aucun code généré pour l'instant.</p>}
+            {codes.map((c) => (
+              <div key={c.code} className="flex items-center justify-between bg-neutral-800 rounded-lg px-3 py-2 text-sm">
+                <span className="font-mono">{c.code}</span>
+                <span className={c.usedBy ? "text-emerald-400 text-xs" : "text-neutral-500 text-xs"}>
+                  {c.usedBy ? "utilisé" : "disponible"}
+                </span>
+              </div>
+            ))}
+          </div>
         </section>
 
         {/* Courses */}

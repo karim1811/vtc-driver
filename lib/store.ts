@@ -207,6 +207,33 @@ export async function seedCodes(codes: string[]): Promise<void> {
   }
 }
 
+export async function createCode(label?: string): Promise<InviteCode> {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sans caractères ambigus
+  const gen = () => {
+    let c = '';
+    for (let i = 0; i < 8; i++) c += alphabet[Math.floor(Math.random() * alphabet.length)];
+    return c;
+  };
+  if (!USE_DB) {
+    const s = j();
+    let code = gen();
+    while (s.codes.find((x) => x.code === code)) code = gen();
+    const entry = { code, label: label || 'invitation' };
+    s.codes.push(entry);
+    rawWrite(s);
+    return entry;
+  }
+  await ensureSchema();
+  let code = gen();
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await sql()`INSERT INTO codes (code, label) VALUES (${code}, ${label || 'invitation'}) ON CONFLICT (code) DO NOTHING`;
+    const rows: any[] = await sql()`SELECT code, label, used_by FROM codes WHERE code = ${code}`;
+    if (rows[0]) return { code: rows[0].code, label: rows[0].label, usedBy: rows[0].used_by != null ? Number(rows[0].used_by) : undefined };
+    code = gen();
+  }
+  throw new Error('impossible de générer un code unique');
+}
+
 // ---- users ----
 export async function createUser(u: Omit<User, 'id' | 'createdAt'>): Promise<User> {
   if (!USE_DB) {

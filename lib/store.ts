@@ -10,7 +10,39 @@ import path from 'path';
 // plus tard, on ne touche QUE ce fichier.
 // ============================================================================
 
-const USE_DB = !!process.env.DATABASE_URL;
+// Résilience : on préfère Neon si DATABASE_URL est présent ET valide.
+// Si la connexion échoue (ex: URL masquée '***' copiée depuis l'UI Neon dans
+// Render), on bascule AUTOMATIQUEMENT sur le store fichier JSON pour que
+// l'appli reste vivante (données non persistées entre redémarrages Render free).
+type DbState = 'unknown' | 'up' | 'down';
+let _dbState: DbState = 'unknown';
+let _dbCheck: Promise<boolean> | null = null;
+
+async function dbReady(): Promise<boolean> {
+  if (_dbState === 'up') return true;
+  if (_dbState === 'down') return false;
+  if (!process.env.DATABASE_URL) {
+    _dbState = 'down';
+    return false;
+  }
+  if (!_dbCheck) {
+    _dbCheck = (async () => {
+      try {
+        await ensureSchema();
+        _dbState = 'up';
+        return true;
+      } catch (e: any) {
+        console.warn(
+          '[store] DATABASE_URL invalide ou masqué — repli sur fichier JSON (données non persistantes).',
+          e?.message ?? e
+        );
+        _dbState = 'down';
+        return false;
+      }
+    })();
+  }
+  return _dbCheck;
+}
 
 // ---- Types ----
 export type InviteCode = { code: string; label: string; usedBy?: number };
@@ -168,13 +200,13 @@ function rowToBooking(r: any): Booking {
 
 // ---- codes ----
 export async function listCodes(): Promise<InviteCode[]> {
-  if (!USE_DB) return j().codes;
+  if (!(await dbReady())) return j().codes;
   await ensureSchema();
   const rows: any[] = await sql()`SELECT code, label, used_by FROM codes`;
   return rows.map((x) => ({ code: x.code, label: x.label, usedBy: x.used_by != null ? Number(x.used_by) : undefined }));
 }
 export async function findCode(code: string): Promise<InviteCode | undefined> {
-  if (!USE_DB) return j().codes.find((c) => c.code === code);
+  if (!(await dbReady())) return j().codes.find((c) => c.code === code);
   await ensureSchema();
   const rows: any[] = await sql()`SELECT code, label, used_by FROM codes WHERE code = ${code}`;
   if (!rows[0]) return undefined;
@@ -182,7 +214,7 @@ export async function findCode(code: string): Promise<InviteCode | undefined> {
   return { code: x.code, label: x.label, usedBy: x.used_by != null ? Number(x.used_by) : undefined };
 }
 export async function consumeCode(code: string, userId: number): Promise<void> {
-  if (!USE_DB) {
+  if (!(await dbReady())) {
     const s = j();
     const c = s.codes.find((x) => x.code === code);
     if (c) c.usedBy = userId;
@@ -193,7 +225,7 @@ export async function consumeCode(code: string, userId: number): Promise<void> {
   await sql()`UPDATE codes SET used_by = ${userId} WHERE code = ${code}`;
 }
 export async function seedCodes(codes: string[]): Promise<void> {
-  if (!USE_DB) {
+  if (!(await dbReady())) {
     const s = j();
     codes.forEach((code, i) => {
       if (!s.codes.find((c) => c.code === code)) s.codes.push({ code, label: 'seed ' + i });
@@ -214,7 +246,7 @@ export async function createCode(label?: string): Promise<InviteCode> {
     for (let i = 0; i < 8; i++) c += alphabet[Math.floor(Math.random() * alphabet.length)];
     return c;
   };
-  if (!USE_DB) {
+  if (!(await dbReady())) {
     const s = j();
     let code = gen();
     while (s.codes.find((x) => x.code === code)) code = gen();
@@ -236,7 +268,7 @@ export async function createCode(label?: string): Promise<InviteCode> {
 
 // ---- users ----
 export async function createUser(u: Omit<User, 'id' | 'createdAt'>): Promise<User> {
-  if (!USE_DB) {
+  if (!(await dbReady())) {
     const s = j();
     const user: User = {
       id: s.users.length ? Math.max(...s.users.map((x) => x.id)) + 1 : 1,
@@ -255,7 +287,7 @@ export async function createUser(u: Omit<User, 'id' | 'createdAt'>): Promise<Use
   return { id, createdAt: new Date().toISOString(), ...u };
 }
 export async function getUser(id: number): Promise<User | undefined> {
-  if (!USE_DB) return j().users.find((x) => x.id === id);
+  if (!(await dbReady())) return j().users.find((x) => x.id === id);
   await ensureSchema();
   const rows: any[] = await sql()`SELECT * FROM users WHERE id = ${id}`;
   if (!rows[0]) return undefined;
@@ -265,13 +297,13 @@ export async function getUser(id: number): Promise<User | undefined> {
 
 // ---- bookings ----
 export async function listBookings(): Promise<Booking[]> {
-  if (!USE_DB) return j().bookings;
+  if (!(await dbReady())) return j().bookings;
   await ensureSchema();
   const rows: any[] = await sql()`SELECT * FROM bookings ORDER BY pickup_at`;
   return rows.map(rowToBooking);
 }
 export async function getBooking(id: number): Promise<Booking | undefined> {
-  if (!USE_DB) return j().bookings.find((x) => x.id === id);
+  if (!(await dbReady())) return j().bookings.find((x) => x.id === id);
   await ensureSchema();
   const rows: any[] = await sql()`SELECT * FROM bookings WHERE id = ${id}`;
   return rows[0] ? rowToBooking(rows[0]) : undefined;
@@ -279,7 +311,7 @@ export async function getBooking(id: number): Promise<Booking | undefined> {
 export async function createBooking(
   b: Omit<Booking, 'id' | 'createdAt' | 'status' | 'paid' | 'deposit'> & { deposit?: number }
 ): Promise<Booking> {
-  if (!USE_DB) {
+  if (!(await dbReady())) {
     const s = j();
     const booking: Booking = {
       id: s.bookings.length ? Math.max(...s.bookings.map((x) => x.id)) + 1 : 1,
@@ -304,7 +336,7 @@ export async function createBooking(
   return { id, createdAt: new Date().toISOString(), status: 'pending', paid: 0, deposit: b.deposit ?? 0, ...b };
 }
 export async function updateBooking(id: number, patch: Partial<Booking>): Promise<Booking | undefined> {
-  if (!USE_DB) {
+  if (!(await dbReady())) {
     const s = j();
     const b = s.bookings.find((x) => x.id === id);
     if (!b) return undefined;
@@ -322,14 +354,14 @@ export async function updateBooking(id: number, patch: Partial<Booking>): Promis
 
 // ---- availability ----
 export async function getAvailability(): Promise<Availability> {
-  if (!USE_DB) return j().availability;
+  if (!(await dbReady())) return j().availability;
   await ensureSchema();
   const rows: any[] = await sql()`SELECT open, slots FROM availability WHERE id = 1`;
   const x = rows[0];
   return { open: !!Number(x.open), slots: JSON.parse(x.slots || '[]') };
 }
 export async function setAvailability(av: Availability): Promise<void> {
-  if (!USE_DB) {
+  if (!(await dbReady())) {
     const s = j();
     s.availability = av;
     rawWrite(s);

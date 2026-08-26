@@ -178,6 +178,12 @@ async function ensureSchema(): Promise<void> {
         await q`INSERT INTO codes (code, label) VALUES (${DEFAULT_CODES[i]}, ${'seed ' + i}) ON CONFLICT (code) DO NOTHING`;
       }
       await q`INSERT INTO availability (id, open, slots) VALUES (1, 1, '[]') ON CONFLICT (id) DO NOTHING`;
+      // Colonnes ajoutées après création initiale de la table : on les garantit
+      // ici (ADD COLUMN IF NOT EXISTS est idempotent) pour ne pas casser si la
+      // table existait déjà sans elles.
+      await q`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS driver_lat REAL`;
+      await q`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS driver_lng REAL`;
+      await q`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS shared_at TEXT`;
     })().catch((e) => {
       _schemaReady = null; // retry next call
       throw e;

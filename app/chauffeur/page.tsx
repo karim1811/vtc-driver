@@ -8,9 +8,12 @@ type Booking = {
   price: number; status: string; payment: string; durationMin: number; deposit: number;
   pickupLat?: number; pickupLng?: number; dropoffLat?: number; dropoffLng?: number;
 };
-type Slot = { id: string; date: string; start: string; end: string };
-type Availability = { open: boolean; slots: Slot[] };
+type WeekdaySlot = { day: number; start: string; end: string };
+type Availability = { open: boolean; weekly: WeekdaySlot[] };
 type InviteCode = { code: string; label?: string; usedBy?: number };
+
+// Index des jours : 0=dim … 6=sam (cohérent avec Date.getDay())
+const DAYS = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
 
 export default function ChauffeurPage() {
   const [pw, setPw] = useState("");
@@ -20,8 +23,11 @@ export default function ChauffeurPage() {
   const [busy, setBusy] = useState(false);
 
   // disponibilité
-  const [av, setAv] = useState<Availability>({ open: true, slots: [] });
-  const [newSlot, setNewSlot] = useState<Slot>({ id: "", date: "", start: "08:00", end: "12:00" });
+  const [av, setAv] = useState<Availability>({ open: true, weekly: [] });
+  // jour en cours d'édition pour ajouter une plage
+  const [editDay, setEditDay] = useState<number>(1); // Lundi par défaut
+  const [editStart, setEditStart] = useState("08:00");
+  const [editEnd, setEditEnd] = useState("12:00");
 
   // codes d'invitation
   const [codes, setCodes] = useState<InviteCode[]>([]);
@@ -76,20 +82,21 @@ export default function ChauffeurPage() {
     await fetch("/api/availability", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ open: next.open, slots: next.slots }),
+      body: JSON.stringify({ open: next.open, weekly: next.weekly }),
     });
   }
   function toggleOpen() {
     saveAv({ ...av, open: !av.open });
   }
   function addSlot() {
-    if (!newSlot.date) return;
-    const slot = { ...newSlot, id: Date.now() + "" };
-    saveAv({ ...av, slots: [...av.slots, slot] });
-    setNewSlot({ id: "", date: "", start: "08:00", end: "12:00" });
+    const slot: WeekdaySlot = { day: editDay, start: editStart, end: editEnd };
+    // Empêche les doublons exacts
+    const exists = av.weekly.find((s) => s.day === slot.day && s.start === slot.start && s.end === slot.end);
+    if (exists) return;
+    saveAv({ ...av, weekly: [...av.weekly, slot] });
   }
-  function removeSlot(id: string) {
-    saveAv({ ...av, slots: av.slots.filter((s) => s.id !== id) });
+  function removeSlot(day: number, start: string, end: string) {
+    saveAv({ ...av, weekly: av.weekly.filter((s) => !(s.day === day && s.start === start && s.end === end)) });
   }
 
   async function setStatus(id: number, status: string) {
@@ -147,64 +154,116 @@ export default function ChauffeurPage() {
   return (
     <main className="flex-1 px-4 py-8">
       <div className="max-w-3xl mx-auto space-y-6">
-        {/* Disponibilité — switch type Uber Driver */}
+        {/* Disponibilité — toggle clair + plages par jour de semaine */}
         <section className="bg-neutral-900 rounded-2xl p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-semibold">Statut</h2>
-              <p className="text-sm text-neutral-400">
-                {av.open ? "Vous êtes en ligne — les clients peuvent réserver." : "Vous êtes hors ligne — aucune réservation possible."}
+              <h2 className="text-lg font-semibold">Disponibilité</h2>
+              <p className={`text-sm font-medium ${av.open ? "text-emerald-400" : "text-red-400"}`}>
+                {av.open
+                  ? "Vous recevez des courses maintenant."
+                  : "Vous êtes indisponible — aucune réservation possible."}
+              </p>
+              <p className="text-xs text-neutral-500 mt-1">
+                {av.weekly.length === 0
+                  ? "Sans plage définie, vous êtes ouvert tous les jours tant que vous êtes « En ligne »."
+                  : "Vous n'acceptez des courses que sur les plages ci-dessous, quand vous êtes « En ligne »."}
               </p>
             </div>
-            <button
-              onClick={toggleOpen}
-              role="switch"
-              aria-checked={av.open}
-              className={`relative h-9 w-16 rounded-full transition-colors ${av.open ? "bg-emerald-500" : "bg-neutral-700"}`}
-            >
-              <span className={`absolute top-1 h-7 w-7 rounded-full bg-white transition-transform ${av.open ? "translate-x-8" : "translate-x-1"}`} />
+            <div className="flex flex-col items-end gap-1">
+              <button
+                onClick={toggleOpen}
+                role="switch"
+                aria-checked={av.open}
+                className={`relative h-9 w-16 rounded-full transition-colors ${av.open ? "bg-emerald-500" : "bg-neutral-700"}`}
+              >
+                <span className={`absolute top-1 h-7 w-7 rounded-full bg-white transition-transform ${av.open ? "translate-x-8" : "translate-x-1"}`} />
+              </button>
+              <span className="text-xs text-neutral-400">{av.open ? "En ligne" : "Hors ligne"}</span>
+            </div>
+          </div>
+
+          {/* Liste des plages hebdomadaires */}
+          <div className="space-y-2">
+            {av.weekly.length === 0 && (
+              <p className="text-sm text-neutral-500">Aucune plage horaire — ouvert en permanence quand vous êtes en ligne.</p>
+            )}
+            {DAYS.map((label, day) => {
+              const slots = av.weekly.filter((s) => s.day === day);
+              if (slots.length === 0) return null;
+              return (
+                <div key={day} className="bg-neutral-800 rounded-lg px-3 py-2 text-sm">
+                  <p className="font-medium text-neutral-300 mb-1">{label}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {slots.map((s) => (
+                      <span key={s.start + s.end} className="inline-flex items-center gap-2 bg-neutral-900 rounded px-2 py-1 text-xs">
+                        {s.start}–{s.end}
+                        <button
+                          className="text-red-400"
+                          onClick={() => removeSlot(s.day, s.start, s.end)}
+                          aria-label="Retirer la plage"
+                        >✕</button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Ajout d'une plage : choisir un jour + horaires */}
+          <div className="pt-2 border-t border-neutral-700 space-y-2">
+            <p className="text-sm text-neutral-400">Ajouter une plage récurrente :</p>
+            <div className="grid grid-cols-1 gap-2">
+              <select className="input" value={editDay} onChange={(e) => setEditDay(Number(e.target.value))}>
+                {DAYS.map((label, day) => (
+                  <option key={day} value={day}>{label}</option>
+                ))}
+              </select>
+              <div className="grid grid-cols-2 gap-2">
+                <input className="input" type="time" value={editStart} onChange={(e) => setEditStart(e.target.value)} />
+                <input className="input" type="time" value={editEnd} onChange={(e) => setEditEnd(e.target.value)} />
+              </div>
+            </div>
+            <button className="btn-sm" onClick={addSlot} disabled={editStart >= editEnd}>
+              Ajouter cette plage
             </button>
           </div>
-
-          <div className="space-y-2">
-            {av.slots.length === 0 && <p className="text-sm text-neutral-500">Aucune plage définie — réservations ouvertes en permanence tant que vous êtes « en ligne ».</p>}
-            {av.slots.map((s) => (
-              <div key={s.id} className="flex items-center justify-between bg-neutral-800 rounded-lg px-3 py-2 text-sm">
-                <span>{new Date(s.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })} · {s.start}–{s.end}</span>
-                <button className="text-red-400 text-xs" onClick={() => removeSlot(s.id)}>Retirer</button>
-              </div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-3 gap-2">
-            <input className="input" type="date" value={newSlot.date} onChange={(e) => setNewSlot({ ...newSlot, date: e.target.value })} />
-            <input className="input" type="time" value={newSlot.start} onChange={(e) => setNewSlot({ ...newSlot, start: e.target.value })} />
-            <input className="input" type="time" value={newSlot.end} onChange={(e) => setNewSlot({ ...newSlot, end: e.target.value })} />
-          </div>
-          <button className="btn-sm" onClick={addSlot} disabled={!newSlot.date}>Ajouter une plage</button>
         </section>
 
-        {/* Codes d'invitation */}
+        {/* Codes d'invitation — lien de partage prêt à l'emploi */}
         <section className="bg-neutral-900 rounded-2xl p-5 space-y-4">
           <div className="flex justify-between items-center">
-            <h2 className="text-lg font-semibold">Codes d'invitation</h2>
+            <h2 className="text-lg font-semibold">Invitations clients</h2>
             <button className="btn-sm" onClick={genCode} disabled={codeBusy}>
-              {codeBusy ? "Génération..." : "Générer un code"}
+              {codeBusy ? "Création..." : "Créer un lien d'invitation"}
             </button>
           </div>
           <p className="text-xs text-neutral-400">
-            Donnez un code à chaque client. Il l'utilise sur la page « Réserver » pour accéder au service.
-            Un code ne peut être utilisé qu'une seule fois.
+            Créez un lien et envoyez-le à votre client (SMS, WhatsApp…). Il ouvre directement la page de réservation,
+            le code est déjà rempli — plus besoin de le recopier.
           </p>
           {newCode && (
-            <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3">
-              <p className="text-xs text-neutral-300">Nouveau code à transmettre :</p>
-              <p className="text-2xl font-mono font-bold text-emerald-400 tracking-widest">{newCode.code}</p>
-              <button className="text-xs text-neutral-400 hover:text-white mt-1" onClick={() => navigator.clipboard?.writeText(newCode.code)}>copier</button>
+            <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3 space-y-2">
+              <p className="text-xs text-neutral-300">Lien à transmettre à votre client :</p>
+              <div className="flex items-center gap-2">
+                <input
+                  readOnly
+                  className="input flex-1 text-xs"
+                  value={`${window.location.origin}/reserver?code=${newCode.code}`}
+                />
+                <button
+                  className="btn-sm whitespace-nowrap"
+                  onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/reserver?code=${newCode.code}`)}
+                >copier</button>
+              </div>
+              <p className="text-xs text-neutral-500">
+                Code : <span className="font-mono text-emerald-400">{newCode.code}</span> · un seul usage.
+              </p>
             </div>
           )}
           <div className="space-y-2">
-            {codes.length === 0 && <p className="text-sm text-neutral-500">Aucun code généré pour l'instant.</p>}
+            {codes.length === 0 && <p className="text-sm text-neutral-500">Aucun lien créé pour l'instant.</p>}
             {codes.map((c) => (
               <div key={c.code} className="flex items-center justify-between bg-neutral-800 rounded-lg px-3 py-2 text-sm">
                 <span className="font-mono">{c.code}</span>

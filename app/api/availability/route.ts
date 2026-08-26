@@ -14,20 +14,20 @@ export async function GET() {
   return NextResponse.json({ availability: av });
 }
 
-// POST : met à jour la disponibilité (open + slots)
-// body: { open: boolean, slots: [{ id, date, start, end }] }
+// POST : met à jour la disponibilité (open + plages hebdo)
+// body: { open: boolean, weekly: [{ day, start, end }] }
 export async function POST(req: NextRequest) {
   const s = await getSession();
   if (!s || s.role !== 'driver')
     return NextResponse.json({ error: 'non autorisé' }, { status: 401 });
-  const { open, slots } = await req.json();
+  const { open, weekly } = await req.json();
   if (typeof open !== 'boolean')
     return NextResponse.json({ error: 'open requis' }, { status: 400 });
-  const cleanSlots = Array.isArray(slots)
-    ? slots
-        .filter((x: any) => x && x.date && x.start && x.end)
-        .map((x: any) => ({ id: String(x.id || Date.now() + Math.random()), date: x.date, start: x.start, end: x.end }))
+  const cleanWeekly = Array.isArray(weekly)
+    ? weekly
+        .filter((x: any) => x && typeof x.day === 'number' && x.start && x.end)
+        .map((x: any) => ({ day: Number(x.day), start: String(x.start), end: String(x.end) }))
     : [];
-  await store.setAvailability({ open: !!open, slots: cleanSlots });
-  return NextResponse.json({ ok: true, availability: { open: !!open, slots: cleanSlots } });
+  await store.setAvailability({ open: !!open, weekly: cleanWeekly });
+  return NextResponse.json({ ok: true, availability: { open: !!open, weekly: cleanWeekly } });
 }

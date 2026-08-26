@@ -85,8 +85,10 @@ export type Booking = {
   driverLng?: number | null;
   sharedAt?: string | null;
 };
-export type Slot = { id: string; date: string; start: string; end: string };
-export type Availability = { open: boolean; slots: Slot[] };
+// Plages hebdomadaires récurrentes (un VTC solo bosse les mêmes jours).
+// day: 0=dimanche … 6=samedi (cohérent avec Date.getDay()).
+export type WeekdaySlot = { day: number; start: string; end: string };
+export type Availability = { open: boolean; weekly: WeekdaySlot[] };
 
 const DEFAULT_CODES = ['BIENVENUE1', 'KARIMVTC', 'IDF60'];
 
@@ -105,17 +107,17 @@ type Store = {
 };
 
 function rawRead(): Store {
-  if (!fs.existsSync(file)) return { codes: [], users: [], bookings: [], availability: { open: true, slots: [] } };
+  if (!fs.existsSync(file)) return { codes: [], users: [], bookings: [], availability: { open: true, weekly: [] } };
   try {
     const s = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<Store>;
     return {
       codes: s.codes ?? [],
       users: s.users ?? [],
       bookings: s.bookings ?? [],
-      availability: s.availability ?? { open: true, slots: [] },
+      availability: s.availability ?? { open: true, weekly: [] },
     };
   } catch {
-    return { codes: [], users: [], bookings: [], availability: { open: true, slots: [] } };
+    return { codes: [], users: [], bookings: [], availability: { open: true, weekly: [] } };
   }
 }
 function rawWrite(s: Store) {
@@ -131,7 +133,7 @@ function j(): Store {
       changed = true;
     }
   });
-  if (!s.availability) s.availability = { open: true, slots: [] };
+  if (!s.availability) s.availability = { open: true, weekly: [] };
   if (changed || !fs.existsSync(file)) rawWrite(s);
   return s;
 }
@@ -389,7 +391,7 @@ export async function getAvailability(): Promise<Availability> {
   await ensureSchema();
   const rows: any[] = await sql()`SELECT open, slots FROM availability WHERE id = 1`;
   const x = rows[0];
-  return { open: !!Number(x.open), slots: JSON.parse(x.slots || '[]') };
+  return { open: !!Number(x.open), weekly: JSON.parse(x.slots || '[]') };
 }
 export async function setAvailability(av: Availability): Promise<void> {
   if (!(await dbReady())) {
@@ -399,16 +401,17 @@ export async function setAvailability(av: Availability): Promise<void> {
     return;
   }
   await ensureSchema();
-  await sql()`UPDATE availability SET open = ${av.open ? 1 : 0}, slots = ${JSON.stringify(av.slots)} WHERE id = 1`;
+  // La colonne DB s'appelle `slots` mais stocke le JSON des plages hebdo.
+  await sql()`UPDATE availability SET open = ${av.open ? 1 : 0}, slots = ${JSON.stringify(av.weekly)} WHERE id = 1`;
 }
 export async function isAvailableAt(pickupAt: string): Promise<boolean> {
   const av = await getAvailability();
   if (!av.open) return false;
-  if (av.slots.length === 0) return true; // pas de planning => ouvert
-  const t = new Date(pickupAt).getTime();
-  return av.slots.some((s) => {
-    const start = new Date(`${s.date}T${s.start}`).getTime();
-    const end = new Date(`${s.date}T${s.end}`).getTime();
-    return t >= start && t <= end;
-  });
+  if (av.weekly.length === 0) return true; // pas de planning => ouvert tous les jours
+  const d = new Date(pickupAt);
+  const day = d.getDay(); // 0=dim … 6=sam
+  const hhmm = pickupAt.slice(11, 16); // "HH:MM" extrait de l'ISO
+  const slot = av.weekly.find((s) => s.day === day);
+  if (!slot) return false;
+  return hhmm >= slot.start && hhmm <= slot.end;
 }

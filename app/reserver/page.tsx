@@ -5,13 +5,15 @@ import { useRouter } from "next/navigation";
 import MapView from "@/components/MapView";
 import AddressInput from "@/components/AddressInput";
 
-type Slot = { id: string; date: string; start: string; end: string };
-type Availability = { open: boolean; slots: Slot[] };
+type WeekdaySlot = { day: number; start: string; end: string };
+type Availability = { open: boolean; weekly: WeekdaySlot[] };
 type Quote = {
   distanceKm: number; price: number; durationMin: number; dept?: string;
   pickupLat?: number; pickupLng?: number; dropoffLat?: number; dropoffLng?: number;
   geometry?: [number, number][]; routed?: boolean; pickupLabel?: string; dropoffLabel?: string;
 };
+
+const DAYS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 
 export default function ReservrPage() {
   const router = useRouter();
@@ -34,7 +36,6 @@ export default function ReservrPage() {
 
   // Disponibilité publique + sélection de créneau
   const [av, setAv] = useState<Availability | null>(null);
-  const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
 
   const [payment, setPayment] = useState<"arrival" | "online" | "cash">("arrival");
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -49,13 +50,14 @@ export default function ReservrPage() {
       .catch(() => {});
   }, []);
 
-  // Si le chauffeur a des plages : on borne la sélection sur l'une d'elles.
-  function applySlot(s: Slot | null) {
-    setSelectedSlot(s);
-    setDate(s ? s.date : "");
-    setHour(s ? s.start : "09:00");
-  }
+  // Pré-remplissage du code depuis l'URL (?code=XXXX) — lien d'invitation chauffeur.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const c = params.get("code");
+    if (c) setCode(c.toUpperCase());
+  }, []);
 
+  // Disponibilité publique (plages hebdo) chargée plus haut via /api/availability/public.
   function pickupAtIso(): string | null {
     if (!date || !hour) return null;
     return `${date}T${hour}:00`;
@@ -156,7 +158,6 @@ export default function ReservrPage() {
     );
   }
 
-  const slotsActifs = av?.slots ?? [];
   const onlineActive = true;
 
   return (
@@ -170,26 +171,17 @@ export default function ReservrPage() {
             <p className="text-neutral-500">Chargement des disponibilités…</p>
           ) : !av.open ? (
             <p className="text-red-400 font-semibold">Réservation fermée pour le moment (chauffeur indisponible).</p>
-          ) : slotsActifs.length > 0 ? (
+          ) : av.weekly.length > 0 ? (
             <>
-              <p className="text-neutral-300 font-semibold">Le chauffeur est disponible sur ces plages :</p>
+              <p className="text-neutral-300 font-semibold">Le chauffeur est disponible ces jours (heures locales) :</p>
               <div className="flex flex-wrap gap-2">
-                {slotsActifs.map((s) => {
-                  const active = selectedSlot?.id === s.id;
-                  return (
-                    <button
-                      key={s.id}
-                      onClick={() => applySlot(active ? null : s)}
-                      className={`px-3 py-2 rounded-lg text-xs border ${active ? "bg-emerald-500 text-black border-emerald-500 font-semibold" : "bg-neutral-900 border-neutral-700 hover:border-emerald-500"}`}
-                    >
-                      {new Date(s.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })} · {s.start}–{s.end}
-                    </button>
-                  );
-                })}
+                {av.weekly.map((s) => (
+                  <span key={s.day + s.start + s.end} className="px-3 py-1 rounded-lg text-xs bg-neutral-900 border border-neutral-700">
+                    {DAYS[s.day]} · {s.start}–{s.end}
+                  </span>
+                ))}
               </div>
-              {selectedSlot && (
-                <p className="text-emerald-400 text-xs">Plage choisie — choisissez une heure dans cette plage ci-dessous.</p>
-              )}
+              <p className="text-emerald-400 text-xs">Réservez une course sur l'une de ces plages (et à une heure comprise dedans).</p>
             </>
           ) : (
             <p className="text-emerald-400 text-xs">Le chauffeur accepte les courses sur l'ensemble de ses jours ouverts.</p>
@@ -225,8 +217,6 @@ export default function ReservrPage() {
             className="input"
             type="time"
             value={hour}
-            min={selectedSlot ? selectedSlot.start : undefined}
-            max={selectedSlot ? selectedSlot.end : undefined}
             onChange={(e) => setHour(e.target.value)}
             required
           />

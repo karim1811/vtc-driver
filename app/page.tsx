@@ -2,8 +2,14 @@ import Link from "next/link";
 
 const features = [
   { t: "Prix connu à l'avance", d: "Le montant de votre course vous est annoncé avant toute réservation." },
-  { t: "Sur invitation", d: "Clientèle fermée, service personnalisé." },
-  { t: "Course sur mesure", d: "Devis calculé selon votre trajet, où que vous soyez." },
+  { t: "Sur invitation", d: "Clientèle fermée, service personnalisé et direct." },
+  { t: "Suivi en direct", d: "Vous suivez votre chauffeur en temps réel jusqu'à la prise en charge." },
+];
+
+const steps = [
+  { n: "1", t: "Demandez votre lien", d: "Le chauffeur vous envoie un lien d'invitation personnalisé." },
+  { n: "2", t: "Réservez en 1 min", d: "Adresse, heure, devis instantané. Vous validez le prix affiché." },
+  { n: "3", t: "Suivez en direct", d: "Le chauffeur partage sa position, vous le voyez arriver." },
 ];
 
 export default function Home() {
@@ -33,6 +39,22 @@ export default function Home() {
           >
             Espace chauffeur
           </Link>
+        </div>
+      </section>
+
+      {/* Comment ça marche */}
+      <section className="mx-auto max-w-5xl px-6 pb-12">
+        <h2 className="mb-6 text-center text-xl font-semibold">Comment ça marche</h2>
+        <div className="grid gap-4 sm:grid-cols-3">
+          {steps.map((s) => (
+            <div key={s.n} className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-5">
+              <span className="grid h-8 w-8 place-items-center rounded-full bg-emerald-500/15 text-sm font-bold text-emerald-300">
+                {s.n}
+              </span>
+              <h3 className="mt-3 font-semibold text-neutral-100">{s.t}</h3>
+              <p className="mt-1 text-sm text-neutral-400">{s.d}</p>
+            </div>
+          ))}
         </div>
       </section>
 

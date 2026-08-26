@@ -29,12 +29,27 @@ function SuiviInner() {
   const id = params.get("id");
   const [b, setB] = useState<Booking | null>(null);
   const [err, setErr] = useState("");
+  const [eta, setEta] = useState<number | null>(null);
 
   async function load() {
     if (!id) return;
     const r = await fetch("/api/booking/" + id);
     if (!r.ok) { setErr("Course introuvable."); return; }
-    setB(await r.json());
+    const d = await r.json();
+    setB(d);
+    // ETA : si le chauffeur partage sa position, distance jusqu'au point de prise en charge.
+    if (d.driverLat != null && d.driverLng != null && d.pickupLat != null && d.pickupLng != null) {
+      try {
+        const r2 = await fetch(
+          `https://router.project-osrm.org/route/v1/driving/${d.driverLng},${d.driverLat};${d.pickupLng},${d.pickupLat}?overview=false`
+        );
+        const j = await r2.json();
+        if (j.routes?.[0]) setEta(Math.round(j.routes[0].duration / 60));
+        else setEta(null);
+      } catch { setEta(null); }
+    } else {
+      setEta(null);
+    }
   }
   useEffect(() => { load(); }, [id]);
   // Rafraîchit la position du véhicule tant que la course n'est pas terminée.
@@ -63,10 +78,13 @@ function SuiviInner() {
               <p>{b.pickup} → {b.dropoff}</p>
               <p className="text-neutral-400">{new Date(b.pickupAt).toLocaleString("fr-FR")}</p>
               <p className="text-emerald-400 text-lg font-bold">{b.price} €</p>
-              {b.status === "pending" && <p className="text-amber-400">En attente de confirmation du chauffeur.</p>}
-              {b.status === "confirmed" && <p className="text-emerald-400">Chauffeur en route 🚗</p>}
-              {b.status === "done" && <p className="text-neutral-400">Course terminée.</p>}
-              {b.status === "cancelled" && <p className="text-red-400">Course annulée.</p>}
+              {b.status === "pending" && <p className="text-amber-400">⏳ En attente de confirmation du chauffeur.</p>}
+              {b.status === "confirmed" && <p className="text-emerald-400">🚗 Chauffeur en route</p>}
+              {b.status === "done" && <p className="text-neutral-400">✅ Course terminée.</p>}
+              {b.status === "cancelled" && <p className="text-red-400">✕ Course annulée.</p>}
+              {eta != null && b.status !== "done" && b.status !== "cancelled" && (
+                <p className="text-sm font-semibold text-emerald-300">⏱ Arrivée estimée : {eta} min</p>
+              )}
               {b.driverLat != null && b.driverLng != null && (
                 <p className="text-xs text-neutral-500">Position du véhicule mise à jour en direct.</p>
               )}

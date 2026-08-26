@@ -67,8 +67,9 @@ export async function POST(req: NextRequest) {
     deposit,
   });
 
-  // Paiement : on déclenche un acompte pour "à l'arrivée" (10%) et "espèces" (30%).
-  // "En avance" paie le total via Stripe.
+  // Paiement : l'acompte n'est encaissé QUE quand le chauffeur confirme sa
+  // présence (bouton dédié), et le solde reste EN SUSPENS dans l'app jusqu'à la
+  // fin de la course (statut 'done'). On ne pré-valide donc rien ici.
   if (paymentMode === 'online' || deposit > 0) {
     const { getBaseUrl, createCheckout } = await import('@/lib/payments');
     const res = await createCheckout({
@@ -77,9 +78,10 @@ export async function POST(req: NextRequest) {
       customerName: s.name,
       returnBase: getBaseUrl(req),
     });
-    // Mode démo : pas de vrai Stripe, on considère l'acompte validé tout de suite.
+    // Mode démo : on ne considère PAS l'acompte validé tout de suite. Le chauffeur
+    // l'encaisse à la confirmation de présence. On renvoie juste l'URL de suivi.
     if (res.mode === 'demo') {
-      await store.updateBooking(booking.id, { paid: 1, status: 'confirmed' });
+      return NextResponse.json({ ok: true, booking, paymentUrl: `/confirmation?id=${booking.id}`, mode: res.mode });
     }
     return NextResponse.json({ ok: true, booking, paymentUrl: res.url, mode: res.mode });
   }

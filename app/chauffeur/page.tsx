@@ -7,7 +7,12 @@ type Booking = {
   id: number; pickup: string; dropoff: string; pickupAt: string;
   price: number; status: string; payment: string; durationMin: number; deposit: number;
   pickupLat?: number; pickupLng?: number; dropoffLat?: number; dropoffLng?: number;
+  depositStatus?: "pending" | "collected";
+  balanceStatus?: "held" | "settled" | "cancelled";
+  clientPhone?: string | null;
+  clientName?: string | null;
 };
+type DriverProfile = { id: number; name: string; phone?: string; vehicle?: string; bio?: string };
 type WeekdaySlot = { day: number; start: string; end: string };
 type Availability = { open: boolean; weekly: WeekdaySlot[] };
 type InviteCode = { code: string; label?: string; usedBy?: number };
@@ -34,6 +39,14 @@ export default function ChauffeurPage() {
   const [newCode, setNewCode] = useState<InviteCode | null>(null);
   const [codeBusy, setCodeBusy] = useState(false);
 
+  // profil chauffeur
+  const [driver, setDriver] = useState<DriverProfile | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editVehicle, setEditVehicle] = useState("");
+  const [editBio, setEditBio] = useState("");
+  const [profileSaved, setProfileSaved] = useState(false);
+
   // partage position live
   const [sharingId, setSharingId] = useState<number | null>(null);
   const [shareMsg, setShareMsg] = useState("");
@@ -54,7 +67,7 @@ export default function ChauffeurPage() {
   }
 
   useEffect(() => {
-    if (authed) { refresh(); loadAv(); loadCodes(); }
+    if (authed) { refresh(); loadAv(); loadCodes(); loadProfile(); }
   }, [authed]);
 
   async function login(e: React.FormEvent) {
@@ -67,6 +80,48 @@ export default function ChauffeurPage() {
     setBusy(false);
     if (!r.ok) { setErr("mot de passe incorrect"); return; }
     setAuthed(true);
+  }
+
+  async function loadProfile() {
+    const r = await fetch("/api/driver/profile");
+    if (r.ok) {
+      const d = await r.json();
+      const drv = d.driver || { id: 1, name: "Chauffeur" };
+      setDriver(drv);
+      setEditName(drv.name || "");
+      setEditPhone(drv.phone || "");
+      setEditVehicle(drv.vehicle || "");
+      setEditBio(drv.bio || "");
+    }
+  }
+  async function saveProfile(e: React.FormEvent) {
+    e.preventDefault();
+    const r = await fetch("/api/driver/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: editName, phone: editPhone, vehicle: editVehicle, bio: editBio }),
+    });
+    if (r.ok) { setProfileSaved(true); loadProfile(); setTimeout(() => setProfileSaved(false), 2000); }
+  }
+  // Le chauffeur confirme sa présence -> encaisse l'acompte. Le solde reste en suspens.
+  async function confirmArrival(id: number) {
+    const r = await fetch("/api/driver/confirm-arrival", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    if (r.ok) refresh();
+  }
+  // Normalise un n° FR pour les liens tel:/wa.me
+  function telHref(p?: string | null) {
+    if (!p) return "";
+    const n = p.replace(/[^0-9+]/g, "");
+    return "tel:" + (n.startsWith("+") ? n : "33" + n.replace(/^0/, ""));
+  }
+  function waHref(p?: string | null) {
+    if (!p) return "";
+    const n = p.replace(/[^0-9]/g, "").replace(/^0/, "33");
+    return "https://wa.me/" + n;
   }
 
   async function refresh() {
@@ -275,7 +330,23 @@ export default function ChauffeurPage() {
           </div>
         </section>
 
-        {/* Courses */}
+        {/* Profil chauffeur */}
+        <section className="bg-neutral-900 rounded-2xl p-5 space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-lg font-semibold">Mon profil</h2>
+            {profileSaved && <span className="text-emerald-400 text-xs">Profil enregistré ✓</span>}
+          </div>
+          <p className="text-xs text-neutral-400">
+            Ce profil apparaît côté client pour qu'il puisse vous appeler / vous joindre sur WhatsApp.
+          </p>
+          <form onSubmit={saveProfile} className="space-y-3">
+            <input className="input" placeholder="Nom affiché" value={editName} onChange={(e) => setEditName(e.target.value)} required />
+            <input className="input" placeholder="Téléphone (ex 06 12 34 56 78)" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
+            <input className="input" placeholder="Véhicule (ex Peugeot 308, Gris, AB-123-CD)" value={editVehicle} onChange={(e) => setEditVehicle(e.target.value)} />
+            <textarea className="input" placeholder="Bio (optionnel)" value={editBio} onChange={(e) => setEditBio(e.target.value)} rows={2} />
+            <button className="btn-sm" type="submit">Enregistrer mon profil</button>
+          </form>
+        </section>
         <section className="space-y-4">
           <div className="flex justify-between items-center">
             <h1 className="text-xl font-semibold">Courses</h1>
@@ -297,6 +368,16 @@ export default function ChauffeurPage() {
                   ? `espèces (acompte ${b.deposit} €)`
                   : `à l'arrivée (acompte ${b.deposit} €)`}
               </p>
+
+              {/* État d'encaissement : acompte vs solde en suspens */}
+              <div className="flex flex-wrap gap-2 text-xs">
+                <span className={b.depositStatus === "collected" ? "px-2 py-1 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300" : "px-2 py-1 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300"}>
+                  Acompte {b.deposit} € : {b.depositStatus === "collected" ? "encaissé" : "en attente de présence"}
+                </span>
+                <span className="px-2 py-1 rounded bg-neutral-800 border border-neutral-700 text-neutral-300">
+                  Solde {Math.max(0, b.price - b.deposit)} € : {b.balanceStatus === "settled" ? "réglé" : "en suspens"}
+                </span>
+              </div>
               {b.pickupLat != null && b.dropoffLat != null && (
                 <MapView
                   pickup={{ lat: b.pickupLat, lng: b.pickupLng! }}
@@ -305,9 +386,17 @@ export default function ChauffeurPage() {
               )}
               <div className="flex gap-2 flex-wrap">
                 {b.status === "pending" && <button className="btn-sm" onClick={() => setStatus(b.id, "confirmed")}>Confirmer</button>}
+                <button className="btn-sm" onClick={() => confirmArrival(b.id)}>✅ Présence confirmée → encaisser acompte</button>
                 {b.status !== "done" && b.status !== "cancelled" && <button className="btn-sm" onClick={() => setStatus(b.id, "done")}>Terminer</button>}
                 {b.status !== "cancelled" && <button className="btn-sm-danger" onClick={() => setStatus(b.id, "cancelled")}>Annuler</button>}
               </div>
+              {/* Contacter le client */}
+              {b.clientPhone && (
+                <div className="flex gap-2">
+                  <a href={telHref(b.clientPhone)} className="btn-sm flex-1 text-center">📞 Appeler le client</a>
+                  <a href={waHref(b.clientPhone)} target="_blank" rel="noreferrer" className="btn-sm flex-1 text-center">💬 WhatsApp</a>
+                </div>
+              )}
               {(b.status === "confirmed" || b.status === "pending") && (
                 <div className="pt-2 border-t border-neutral-700">
                   {sharingId === b.id ? (

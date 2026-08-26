@@ -7,9 +7,22 @@ import MapView from "@/components/MapView";
 type Booking = {
   id: number; pickup: string; dropoff: string; pickupAt: string;
   price: number; status: string; payment: string; deposit: number;
+  depositStatus?: "pending" | "collected"; balanceStatus?: "held" | "settled" | "cancelled";
   pickupLat?: number; pickupLng?: number; dropoffLat?: number; dropoffLng?: number;
   driverLat: number | null; driverLng: number | null; sharedAt: string | null;
+  driverName?: string | null; driverPhone?: string | null;
 };
+
+function telHref(p?: string | null) {
+  if (!p) return "";
+  const n = p.replace(/[^0-9+]/g, "");
+  return "tel:" + (n.startsWith("+") ? n : "33" + n.replace(/^0/, ""));
+}
+function waHref(p?: string | null) {
+  if (!p) return "";
+  const n = p.replace(/[^0-9]/g, "").replace(/^0/, "33");
+  return "https://wa.me/" + n;
+}
 
 function SuiviInner() {
   const params = useSearchParams();
@@ -57,7 +70,17 @@ function SuiviInner() {
               {b.driverLat != null && b.driverLng != null && (
                 <p className="text-xs text-neutral-500">Position du véhicule mise à jour en direct.</p>
               )}
+              {b.driverName && (
+                <p className="text-sm text-neutral-300">Votre chauffeur : <b>{b.driverName}</b></p>
+              )}
             </div>
+
+            {b.driverPhone && (
+              <div className="flex gap-2">
+                <a href={telHref(b.driverPhone)} className="btn-sm flex-1 text-center">📞 Appeler le chauffeur</a>
+                <a href={waHref(b.driverPhone)} target="_blank" rel="noreferrer" className="btn-sm flex-1 text-center">💬 WhatsApp</a>
+              </div>
+            )}
 
             <MapView
               pickup={{ lat: b.pickupLat!, lng: b.pickupLng! }}

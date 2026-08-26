@@ -11,5 +11,12 @@ export async function GET() {
     return NextResponse.json({ error: 'non autorisé' }, { status: 401 });
   const bookings = (await store.listBookings())
     .sort((a, b) => new Date(a.pickupAt).getTime() - new Date(b.pickupAt).getTime());
-  return NextResponse.json({ bookings });
+  // Enrichit avec le téléphone du client (pour le contacter via Appel/WhatsApp).
+  const enriched = await Promise.all(
+    bookings.map(async (b) => {
+      const u = await store.getUser(b.userId);
+      return { ...b, clientPhone: u?.phone ?? null, clientName: u?.name ?? null };
+    })
+  );
+  return NextResponse.json({ bookings: enriched });
 }

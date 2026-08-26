@@ -62,6 +62,14 @@ export type User = {
   inviteCode?: string;
   createdAt: string;
 };
+export type Driver = {
+  id: number;
+  name: string;
+  phone?: string;
+  vehicle?: string; // ex "Peugeot 308, Gris, AB-123-CD"
+  bio?: string;
+  createdAt: string;
+};
 export type Booking = {
   id: number;
   userId: number;
@@ -84,6 +92,13 @@ export type Booking = {
   driverLat?: number | null;
   driverLng?: number | null;
   sharedAt?: string | null;
+  // Paiement scindé (logique métier) :
+  // deposit_status : acompte — encaissé par le chauffeur quand le client confirme la présence.
+  //   'pending' -> 'collected' (chauffeur encaisse à la présentation)
+  // balance_status : solde — reste EN SUSPENS dans l'app jusqu'à la fin de la course.
+  //   'held' -> 'settled' (à la cloture 'done') ou 'refunded'/'waived'
+  depositStatus?: 'pending' | 'collected';
+  balanceStatus?: 'held' | 'settled' | 'cancelled';
 };
 // Plages hebdomadaires récurrentes (un VTC solo bosse les mêmes jours).
 // day: 0=dimanche … 6=samedi (cohérent avec Date.getDay()).
@@ -104,10 +119,11 @@ type Store = {
   users: User[];
   bookings: Booking[];
   availability: Availability;
+  drivers: Driver[];
 };
 
 function rawRead(): Store {
-  if (!fs.existsSync(file)) return { codes: [], users: [], bookings: [], availability: { open: true, weekly: [] } };
+  if (!fs.existsSync(file)) return { codes: [], users: [], bookings: [], availability: { open: true, weekly: [] }, drivers: [] };
   try {
     const s = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<Store>;
     return {
@@ -115,9 +131,10 @@ function rawRead(): Store {
       users: s.users ?? [],
       bookings: s.bookings ?? [],
       availability: s.availability ?? { open: true, weekly: [] },
+      drivers: s.drivers ?? [],
     };
   } catch {
-    return { codes: [], users: [], bookings: [], availability: { open: true, weekly: [] } };
+    return { codes: [], users: [], bookings: [], availability: { open: true, weekly: [] }, drivers: [] };
   }
 }
 function rawWrite(s: Store) {
@@ -134,6 +151,7 @@ function j(): Store {
     }
   });
   if (!s.availability) s.availability = { open: true, weekly: [] };
+  if (!s.drivers) s.drivers = [];
   if (changed || !fs.existsSync(file)) rawWrite(s);
   return s;
 }
@@ -176,6 +194,10 @@ async function ensureSchema(): Promise<void> {
         CREATE TABLE IF NOT EXISTS availability (
           id INTEGER PRIMARY KEY CHECK (id = 1), open INTEGER DEFAULT 1, slots TEXT DEFAULT '[]'
         )`;
+      await q`
+        CREATE TABLE IF NOT EXISTS drivers (
+          id SERIAL PRIMARY KEY, name TEXT, phone TEXT, vehicle TEXT, bio TEXT, created_at TEXT
+        )`;
       for (let i = 0; i < DEFAULT_CODES.length; i++) {
         await q`INSERT INTO codes (code, label) VALUES (${DEFAULT_CODES[i]}, ${'seed ' + i}) ON CONFLICT (code) DO NOTHING`;
       }
@@ -186,6 +208,8 @@ async function ensureSchema(): Promise<void> {
       await q`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS driver_lat REAL`;
       await q`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS driver_lng REAL`;
       await q`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS shared_at TEXT`;
+      await q`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS deposit_status TEXT DEFAULT 'pending'`;
+      await q`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS balance_status TEXT DEFAULT 'held'`;
     })().catch((e) => {
       _schemaReady = null; // retry next call
       throw e;
@@ -215,6 +239,8 @@ function rowToBooking(r: any): Booking {
     driverLat: r.driver_lat != null ? Number(r.driver_lat) : null,
     driverLng: r.driver_lng != null ? Number(r.driver_lng) : null,
     sharedAt: r.shared_at ?? null,
+    depositStatus: r.deposit_status ?? 'pending',
+    balanceStatus: r.balance_status ?? 'held',
   };
 }
 
@@ -319,6 +345,36 @@ export async function getUser(id: number): Promise<User | undefined> {
   return { id: Number(x.id), name: x.name, phone: x.phone, email: x.email, inviteCode: x.invite_code, createdAt: x.created_at };
 }
 
+// ---- drivers (profil chauffeur) ----
+export async function upsertDriver(d: Omit<Driver, 'id' | 'createdAt'> & { id?: number }): Promise<Driver> {
+  if (!(await dbReady())) {
+    const s = j();
+    let driver = s.drivers.find((x) => x.id === d.id);
+    if (!driver) {
+      driver = { id: s.drivers.length ? Math.max(...s.drivers.map((x) => x.id)) + 1 : 1, createdAt: new Date().toISOString(), name: d.name };
+      s.drivers.push(driver);
+    }
+    Object.assign(driver, d);
+    rawWrite(s);
+    return driver;
+  }
+  await ensureSchema();
+  if (d.id) {
+    await sql()`UPDATE drivers SET name = ${d.name}, phone = ${d.phone ?? null}, vehicle = ${d.vehicle ?? null}, bio = ${d.bio ?? null} WHERE id = ${d.id}`;
+    return (await getDriver(d.id))!;
+  }
+  const res: any[] = await sql()`INSERT INTO drivers (name, phone, vehicle, bio, created_at) VALUES (${d.name}, ${d.phone ?? null}, ${d.vehicle ?? null}, ${d.bio ?? null}, ${new Date().toISOString()}) RETURNING id`;
+  return (await getDriver(Number(res[0].id)))!;
+}
+export async function getDriver(id: number): Promise<Driver | undefined> {
+  if (!(await dbReady())) return j().drivers.find((x) => x.id === id);
+  await ensureSchema();
+  const rows: any[] = await sql()`SELECT * FROM drivers WHERE id = ${id}`;
+  if (!rows[0]) return undefined;
+  const x = rows[0];
+  return { id: Number(x.id), name: x.name, phone: x.phone, vehicle: x.vehicle, bio: x.bio, createdAt: x.created_at };
+}
+
 // ---- bookings ----
 export async function listBookings(): Promise<Booking[]> {
   if (!(await dbReady())) return j().bookings;
@@ -372,7 +428,7 @@ export async function updateBooking(id: number, patch: Partial<Booking>): Promis
   const cur = await getBooking(id);
   if (!cur) return undefined;
   const merged = { ...cur, ...patch };
-  await sql()`UPDATE bookings SET status = ${merged.status}, payment = ${merged.payment}, deposit = ${merged.deposit}, paid = ${merged.paid}, driver_lat = ${merged.driverLat ?? null}, driver_lng = ${merged.driverLng ?? null}, shared_at = ${merged.sharedAt ?? null} WHERE id = ${id}`;
+  await sql()`UPDATE bookings SET status = ${merged.status}, payment = ${merged.payment}, deposit = ${merged.deposit}, paid = ${merged.paid}, driver_lat = ${merged.driverLat ?? null}, driver_lng = ${merged.driverLng ?? null}, shared_at = ${merged.sharedAt ?? null}, deposit_status = ${merged.depositStatus ?? 'pending'}, balance_status = ${merged.balanceStatus ?? 'held'} WHERE id = ${id}`;
   return merged;
 }
 

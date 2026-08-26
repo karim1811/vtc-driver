@@ -44,6 +44,14 @@ async function dbReady(): Promise<boolean> {
   return _dbCheck;
 }
 
+// Exposé pour /api/health : dit VRAIMENT si on tourne sur la base Postgres
+// ('db') ou en repli fichier ('file' / 'error'). Fin du repli silencieux.
+export async function dbMode(): Promise<'db' | 'file' | 'error'> {
+  if (!process.env.DATABASE_URL) return 'file';
+  const ok = await dbReady();
+  return ok ? 'db' : 'error';
+}
+
 // ---- Types ----
 export type InviteCode = { code: string; label: string; usedBy?: number };
 export type User = {

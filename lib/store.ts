@@ -210,6 +210,9 @@ async function ensureSchema(): Promise<void> {
       await q`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS shared_at TEXT`;
       await q`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS deposit_status TEXT DEFAULT 'pending'`;
       await q`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS balance_status TEXT DEFAULT 'held'`;
+      await q`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS phone TEXT`;
+      await q`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS vehicle TEXT`;
+      await q`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS bio TEXT`;
     })().catch((e) => {
       _schemaReady = null; // retry next call
       throw e;

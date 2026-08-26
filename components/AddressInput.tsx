@@ -11,12 +11,14 @@ export default function AddressInput({
   label,
   value,
   onChange,
+  onSelect,
   required,
   excludePt,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  onSelect?: (s: Suggestion) => void;
   required?: boolean;
   excludePt?: [number, number];
 }) {
@@ -97,7 +99,7 @@ export default function AddressInput({
       />
       {busy && <span className="absolute right-3 top-3 text-xs text-neutral-500">…</span>}
       {open && sugs.length > 0 && (
-        <ul className="absolute z-20 mt-1 w-full overflow-hidden rounded-xl border border-neutral-700 bg-neutral-900 text-sm shadow-lg">
+        <ul className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border border-neutral-700 bg-neutral-900 text-sm shadow-lg">
           {sugs.map((s, i) => (
             <li key={i}>
               <button
@@ -106,6 +108,7 @@ export default function AddressInput({
                 onClick={() => {
                   onChange(s.short);
                   setOpen(false);
+                  onSelect?.(s);
                 }}
               >
                 {s.short}

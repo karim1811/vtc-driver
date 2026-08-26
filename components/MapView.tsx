@@ -204,5 +204,5 @@ export default function MapView({
   }, [driver]);
 
   if (!pickup && !dropoff && !driver && !interactive) return null;
-  return <div ref={ref} style={{ height }} className="rounded-xl overflow-hidden border border-neutral-800" />;
+  return <div ref={ref} style={{ height }} className="rounded-xl overflow-hidden border border-neutral-800 relative z-0" />;
 }

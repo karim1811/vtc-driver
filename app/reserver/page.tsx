@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import MapView from "@/components/MapView";
 import AddressInput from "@/components/AddressInput";
+import type { Suggestion } from "@/components/AddressInput";
 
 type WeekdaySlot = { day: number; start: string; end: string };
 type Availability = { open: boolean; weekly: WeekdaySlot[] };
@@ -28,6 +29,9 @@ export default function ReservrPage() {
   const [dropoff, setDropoff] = useState("");
   const [pickupPt, setPickupPt] = useState<{ lat: number; lng: number } | null>(null);
   const [dropoffPt, setDropoffPt] = useState<{ lat: number; lng: number } | null>(null);
+  // Coords issues de l'autocomplétion Photon (évite de re-géocoder le texte côté serveur).
+  const [pickupSug, setPickupSug] = useState<Suggestion | null>(null);
+  const [dropoffSug, setDropoffSug] = useState<Suggestion | null>(null);
   const [geom, setGeom] = useState<[number, number][] | undefined>(undefined);
 
   // Date + heure
@@ -81,10 +85,13 @@ export default function ReservrPage() {
     setMsg(""); setBusy(true);
     const pickupAt = pickupAtIso();
     if (!pickupAt) { setMsg("choisissez une date et une heure"); setBusy(false); return; }
+    // Priorité aux coords de l'autocomplétion (jamais re-géocodées), sinon au pin map, sinon texte.
+    const pickupPayload = pickupSug ? `${pickupSug.lat},${pickupSug.lng}` : pickupPt ? `${pickupPt.lat},${pickupPt.lng}` : pickup;
+    const dropoffPayload = dropoffSug ? `${dropoffSug.lat},${dropoffSug.lng}` : dropoffPt ? `${dropoffPt.lat},${dropoffPt.lng}` : dropoff;
     const r = await fetch("/api/quote", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pickup, dropoff, pickupAt }),
+      body: JSON.stringify({ pickup: pickupPayload, dropoff: dropoffPayload, pickupAt }),
     });
     const d = await r.json();
     setBusy(false);
@@ -107,12 +114,14 @@ export default function ReservrPage() {
   async function refreshFromMap() {
     if (!pickupPt || !dropoffPt) return;
     setBusy(true);
+    const pickupPayload = pickupSug ? `${pickupSug.lat},${pickupSug.lng}` : `${pickupPt.lat},${pickupPt.lng}`;
+    const dropoffPayload = dropoffSug ? `${dropoffSug.lat},${dropoffSug.lng}` : `${dropoffPt.lat},${dropoffPt.lng}`;
     const r = await fetch("/api/quote", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        pickup: pickupPt ? `${pickupPt.lat},${pickupPt.lng}` : pickup,
-        dropoff: dropoffPt ? `${dropoffPt.lat},${dropoffPt.lng}` : dropoff,
+        pickup: pickupPayload,
+        dropoff: dropoffPayload,
         pickupAt: pickupAtIso() || `${new Date().toISOString().slice(0, 10)}T09:00:00`,
       }),
     });
@@ -125,9 +134,11 @@ export default function ReservrPage() {
     setMsg(""); setBusy(true);
     const pickupAt = pickupAtIso();
     if (!pickupAt) { setMsg("choisissez une date et une heure"); setBusy(false); return; }
+    const pickupPayload = pickupSug ? `${pickupSug.lat},${pickupSug.lng}` : pickupPt ? `${pickupPt.lat},${pickupPt.lng}` : pickup;
+    const dropoffPayload = dropoffSug ? `${dropoffSug.lat},${dropoffSug.lng}` : dropoffPt ? `${dropoffPt.lat},${dropoffPt.lng}` : dropoff;
     const body: any = {
-      pickup: pickupPt ? `${pickupPt.lat},${pickupPt.lng}` : pickup,
-      dropoff: dropoffPt ? `${dropoffPt.lat},${dropoffPt.lng}` : dropoff,
+      pickup: pickupPayload,
+      dropoff: dropoffPayload,
       pickupAt, payment,
     };
     const r = await fetch("/api/book", {
@@ -190,8 +201,8 @@ export default function ReservrPage() {
 
         {/* Adresses */}
         <div className="space-y-3">
-          <AddressInput label="Adresse de départ" value={pickup} onChange={(v) => { setPickup(v); setPickupPt(null); setQuote(null); }} required />
-          <AddressInput label="Adresse d'arrivée" value={dropoff} onChange={(v) => { setDropoff(v); setDropoffPt(null); setQuote(null); }} required />
+          <AddressInput label="Adresse de départ" value={pickup} onChange={(v) => { setPickup(v); setPickupPt(null); setPickupSug(null); setQuote(null); }} onSelect={(s) => { setPickupPt({ lat: s.lat, lng: s.lng }); setPickupSug(s); }} required />
+          <AddressInput label="Adresse d'arrivée" value={dropoff} onChange={(v) => { setDropoff(v); setDropoffPt(null); setDropoffSug(null); setQuote(null); }} onSelect={(s) => { setDropoffPt({ lat: s.lat, lng: s.lng }); setDropoffSug(s); }} required />
         </div>
 
         {/* Carte live : posez/corrigez les points à la main */}

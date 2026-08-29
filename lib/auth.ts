@@ -45,3 +45,30 @@ export async function clearSession(): Promise<void> {
   const c = await cookies();
   c.delete('vtc_session');
 }
+
+// Lit la session côté client (navigateur) en décodant le COOKIE `vtc_session`
+// posé par le serveur (httpOnly). NE fait PAS confiance au contenu : le serveur
+// re-vérifie la signature HMAC à chaque appel API. Sert uniquement à savoir si
+// l'utilisateur est connecté pour afficher le bon écran.
+export function getClientSession(): Session | null {
+  if (typeof window === 'undefined') return null;
+  const m = document.cookie.match(/(?:^|;\s*)vtc_session=([^;]+)/);
+  if (!m) return null;
+  const tok = decodeURIComponent(m[1]);
+  const [body] = tok.split('.');
+  if (!body) return null;
+  try {
+    return JSON.parse(
+      typeof atob !== 'undefined'
+        ? decodeURIComponent(
+            atob(body.replace(/-/g, '+').replace(/_/g, '/'))
+              .split('')
+              .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+              .join('')
+          )
+        : Buffer.from(body, 'base64url').toString()
+    ) as Session;
+  } catch {
+    return null;
+  }
+}

@@ -169,7 +169,11 @@ export default function ReservrPage() {
     );
   }
 
-  const onlineActive = true;
+  // Stripe est actif côté client SEULEMENT si la clé publique est définie
+  // (build-time). Sans clé, le bouton "Payer en avance" reste désactivé et
+  // l'utilisateur doit payer à l'arrivée / en espèces. Cohérent avec le
+  // serveur (STRIPE_ENABLED = !!STRIPE_SECRET_KEY).
+  const onlineActive = !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE;
 
   return (
     <main className="flex-1 px-4 py-8">

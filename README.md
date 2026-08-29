@@ -15,8 +15,8 @@ Projet open source — sans dépendance payante, déployable gratuitement (Verce
 
 ## Stack
 - Next.js 16 (App Router, TypeScript, Tailwind v4)
-- Stockage **fichier JSON** (`data/store.json`) — aucune base à installer (marche sur Windows + hébergement gratuit)
-- Géocodage Nominatim (OpenStreetMap) — gratuit, sans clé
+- Stockage **Neon Postgres** en prod (`DATABASE_URL`) — repli **fichier JSON** (`data/store.json`) en local/dev (aucune base à installer en dev)
+- Géocodage **Photon** (OpenStreetMap) — gratuit, sans clé
 - Sessions signées HMAC (cookie httpOnly)
 
 ## Démarrage local
@@ -54,7 +54,16 @@ public/sw.js               # service worker PWA
 ```
 
 ## Roadmap
-- Notifications push (courses entrantes)
-- Carte interactive (Mapbox) au lieu d'adresse texte
-- Persistance DB (Vercel KV / SQLite sur Render)
+- Notifications push (courses entrantes) — à faire
+- Carte interactive (Mapbox) au lieu d'adresse texte — partiel (MapView/AddressInput sur Photon/OSM déjà en place)
+- Persistance DB — **fait** (Neon Postgres en prod, JSON en dev)
 - Multi-chauffeurs (plus tard)
+
+## Paiement en avance (Stripe) — état réel
+- Le flux est branché : `/api/book` crée une Checkout Session Stripe, le webhook
+  `/api/webhook/stripe` marque l'acompte `depositStatus='collected'` à la validation.
+- Le bouton "Payer en avance" s'active **uniquement** si `NEXT_PUBLIC_STRIPE_PUBLISHABLE`
+  est défini (build-time). Sans clé → il reste désactivé (paiement à l'arrivée / espèces).
+- Pour activer : définir `STRIPE_SECRET_KEY` + `STRIPE_PUBLISHABLE_KEY` + `NEXT_PUBLIC_STRIPE_PUBLISHABLE`
+  + `STRIPE_WEBHOOK_SECRET` dans `.env` (et dans le dashboard Render), puis `npm run build`.
+- Mode démo (sans clé) : le paiement est simulé, aucun appel réseau.

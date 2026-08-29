@@ -101,6 +101,7 @@ export type RouteResult = {
 // Décodage de la polyline encodée OSRM (algo standard, per spec).
 export function decodePolyline(str: string): [number, number][] {
   const coords: [number, number][] = [];
+  if (!str) return coords;
   let index = 0, lat = 0, lng = 0;
   while (index < str.length) {
     let result = 1, shift = 0, b: number;
@@ -119,7 +120,12 @@ export function decodePolyline(str: string): [number, number][] {
     } while (b >= 0x1f);
     lng += result & 1 ? ~(result >> 1) : result >> 1;
 
-    coords.push([lat / 1e5, lng / 1e5]);
+    const la = lat / 1e5, ln = lng / 1e5;
+    // On ignore les points aberrants (hors plage geo réelle) plutôt que de
+    // planter la carte côté client.
+    if (Number.isFinite(la) && Number.isFinite(ln) && Math.abs(la) <= 90 && Math.abs(ln) <= 180) {
+      coords.push([la, ln]);
+    }
   }
   return coords;
 }

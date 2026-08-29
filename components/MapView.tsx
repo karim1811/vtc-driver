@@ -178,9 +178,15 @@ export default function MapView({
     setOrMove(puRef, pickup, carIcon("#10b981", "●"), "Départ", onPickup);
     setOrMove(doRef, dropoff, carIcon("#ef4444", "■"), "Arrivée", onDropoff);
 
-    // Trace
+    // Trace — on ne garde QUE les points valides (lat/lng finis) pour ne pas
+    // planter Leaflet (f.intersects sur un point [undefined, undefined]).
+    const valid = (pts?: [number, number][]) =>
+      (pts || []).filter((p) => Array.isArray(p) && p.length === 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+    const geomValid = valid(geometry);
     const trace: [number, number][] =
-      geometry && geometry.length >= 2 ? geometry : [pickup, dropoff].filter(Boolean).map((p) => [p!.lat, p!.lng] as [number, number]);
+      geomValid.length >= 2
+        ? geomValid
+        : valid([pickup, dropoff].filter(Boolean).map((p) => [p!.lat, p!.lng] as [number, number]));
     if (trace.length >= 2) {
       if (lineRef.current) (lineRef.current as any).remove?.();
       lineRef.current = L.polyline(trace, { color: "#10b981", weight: glow ? 5 : 4, opacity: 0.9, dashArray: glow ? "1 12" : undefined }).addTo(mapRef.current);

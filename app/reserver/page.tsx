@@ -41,6 +41,9 @@ export default function ReservrPage() {
   // Disponibilité publique + sélection de créneau
   const [av, setAv] = useState<Availability | null>(null);
 
+  // Statut Stripe : vrai flag serveur (STRIPE_ENABLED) — pas process.env côté client.
+  const [stripeOnline, setStripeOnline] = useState(false);
+
   const [payment, setPayment] = useState<"arrival" | "online" | "cash">("arrival");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [deposit, setDeposit] = useState(0);
@@ -51,6 +54,10 @@ export default function ReservrPage() {
     fetch("/api/availability/public")
       .then((r) => r.json())
       .then((d) => setAv(d.availability))
+      .catch(() => {});
+    fetch("/api/stripe-status")
+      .then((r) => r.json())
+      .then((d) => setStripeOnline(!!d.online))
       .catch(() => {});
   }, []);
 
@@ -169,11 +176,11 @@ export default function ReservrPage() {
     );
   }
 
-  // Stripe est actif côté client SEULEMENT si la clé publique est définie
-  // (build-time). Sans clé, le bouton "Payer en avance" reste désactivé et
-  // l'utilisateur doit payer à l'arrivée / en espèces. Cohérent avec le
-  // serveur (STRIPE_ENABLED = !!STRIPE_SECRET_KEY).
-  const onlineActive = !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE;
+  // Stripe est actif côté client SEULEMENT si le serveur le confirme
+  // (STRIPE_ENABLED = !!STRIPE_SECRET_KEY). On ne lit pas process.env côté
+  // client (Next ne l'inline pas fiablement dans le bundle) : on utilise le
+  // flag serveur renvoyé par /api/stripe-status.
+  const onlineActive = stripeOnline;
 
   return (
     <main className="flex-1 px-4 py-8">

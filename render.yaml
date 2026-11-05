@@ -22,10 +22,10 @@ services:
         value: pk_test_51TkWacBnM9GlS86S4ToFsn3Ul3L5uXJUCxEoNeADoPcwuK85amLI5ncqhLAs9FsVrbIVB4S2pbZSgC2XwcZJbTrL00rw9SWdfW
         sync: false
       - key: STRIPE_SECRET_KEY
-        value: sk_test_51TkWacBnM9GlS86SCjyBCaii4aHsV76OQ8qZn6iAJMD9aTmDzk91QBkOXNQrZQUCiGcfHhXSjX3DfWccDR9P2Bw100lP4DAp9i
+        value: sk_tes...Ap9i
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
-        value: whsec_GLVUh4lJN1OWFFAUOEXicf5S2pDbLDyy
+        value: whsec_...KEY
         sync: false
       - key: APP_URL
         value: https://vtc-driver.onrender.com # remplace par ton vrai sous-domaine Render

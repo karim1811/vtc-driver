@@ -19,16 +19,13 @@ services:
       - key: NODE_VERSION
         value: "22"
       - key: NEXT_PUBLIC_STRIPE_PUBLISHABLE
-        sync: false # laisse vide = mode démo (pas de paiement Stripe)
-      - key: AUTH_SECRET
-        generateValue: true # Render génère un secret aléatoire
-      - key: DRIVER_PASSWORD
-        sync: false # À renseigner OBLIGATOIREMENT dans le dashboard
-      - key: DATABASE_URL
-        sync: false # À renseigner (connection string Neon, ex: postgres://owner:...@ep-xxx.eu-central-1.aws.neon.tech/neondb?sslmode=require)
+        value: pk_test_51TkWacBnM9GlS86S4ToFsn3Ul3L5uXJUCxEoNeADoPcwuK85amLI5ncqhLAs9FsVrbIVB4S2pbZSgC2XwcZJbTrL00rw9SWdfW
+        sync: false
       - key: STRIPE_SECRET_KEY
-        sync: false # laisse vide = mode démo
+        value: sk_test_51TkWacBnM9GlS86SCjyBCaii4aHsV76OQ8qZn6iAJMD9aTmDzk91QBkOXNQrZQUCiGcfHhXSjX3DfWccDR9P2Bw100lP4DAp9i
+        sync: false
       - key: STRIPE_WEBHOOK_SECRET
-        sync: false # laisse vide = mode démo
+        value: whsec_GLVUh4lJN1OWFFAUOEXicf5S2pDbLDyy
+        sync: false
       - key: APP_URL
         value: https://vtc-driver.onrender.com # remplace par ton vrai sous-domaine Render
